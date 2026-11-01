@@ -36,7 +36,8 @@ herdr-orchestrate での使い方は [agtask 操作](../skills/herdr-orchestrate
 `git` は `execFileSync` で cwd を指定して呼び、標準エラーは捨てる。失敗や `git` が無い場合は次の段へ進む。
 `init` 以外は DB ファイルが無ければ `NOT_INITIALIZED` で終了する。ファイルはあるが開けない・書けない場合は `DB_ACCESS` で終了する。
 
-DB を Git の追跡対象にしない手段は、`init` が作る `.agtask/.gitignore`（内容 `*`）だけとする。`.git/` には何も書かない。
+CLI は既定の保存先への `init` で `.agtask/.gitignore`（内容 `*`）を作り、DB を Git の追跡対象から除外する。既存の `.gitignore` は変更せず、`AGTASK_DB` 指定時は作らない。`.git/` には何も書かない。
+Home Manager で global ignore も設定する場合は、[利用手順](usage.md#agtask-の-global-ignore) を参照する。
 sandbox が cwd 配下だけを書込可にする場合、DB ディレクトリが子の cwd 配下になければ書込許可が要る。2. で解決した場合、main worktree のルートを cwd にした子は追加の権限なしで書け、cwd が下位ディレクトリや別の worktree の子には許可が要る。運用は [agtask 操作](../skills/herdr-orchestrate/references/agtask.md#実行前親) を参照する。
 
 ## データモデル

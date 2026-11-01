@@ -46,6 +46,24 @@ Opus と Grok は `cursor agent`、Astra と Luna は Codex CLI で動く。
 中断した作業は `agtask handoff` の要約を読んで再開できる。DB が子の sandbox の書込範囲外にある場合、子に記録させるには書込許可が要る。
 仕様と保存先は [agtask](agtask.md) を参照する。
 
+### agtask の global ignore
+
+この flake は `lib.agtask.ignores` に agtask 用の Git ignore パターンを公開する。
+利用側の Home Manager 設定で `programs.git.ignores` に追加できる。
+次は `outputs` で受け取った `dotfiles` を参照できる場所で、Home Manager の `modules` に追加する例。
+
+```nix
+{
+  programs.git = {
+    enable = true;
+    ignores = [ "*.swp" ] ++ dotfiles.lib.agtask.ignores;
+  };
+}
+```
+
+既存の ignore パターンは左側のリストに置く。適用すると、そのユーザーの各 repo で agtask の保存ディレクトリを除外する。
+`AGTASK_DB` で保存先を変更する場合は、そのパスに合うパターンを利用側で追加する。既に追跡済みのファイルには効かない。
+
 ## Node・開発・検証
 
 clone 先で実行する。Node は [node.nix](../nix/agent-tools/node.nix) にバージョンとハッシュを固定した公式バイナリを使う。Node/V8 のソースコンパイルは行わない。

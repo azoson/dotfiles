@@ -34,6 +34,7 @@ pkgs.stdenvNoCC.mkDerivation {
   '';
   meta = {
     description = "Local agent task and dependency graph manager";
+    license = pkgs.lib.licenses.mit;
     mainProgram = "agtask";
   };
 }

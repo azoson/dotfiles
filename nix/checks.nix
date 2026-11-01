@@ -25,6 +25,10 @@
             home.homeDirectory = if pkgs.stdenv.hostPlatform.isDarwin then "/Users/skill-test" else "/home/skill-test";
             home.stateVersion = "26.05";
             programs.agent-skills.targets.claude.enable = true;
+            programs.git = {
+              enable = true;
+              ignores = [ "*.swp" ] ++ self.lib.agtask.ignores;
+            };
           }
         ];
       };

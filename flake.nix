@@ -26,6 +26,7 @@
       imports = [ agentTools ./nix/checks.nix ];
 
       flake.flakeModules.agent-tools = agentTools;
+      flake.lib.agtask.ignores = [ ".agtask/" ];
       flake.homeManagerModules.default = { ... }: {
         imports = [ inputs.self.homeManagerModules.agent-tools ];
       };
