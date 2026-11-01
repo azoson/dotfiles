@@ -35,10 +35,12 @@
           assert consumer.packages.${system}.default.drvPath == pkgs.hello.drvPath;
           assert consumer.devShells.${system}.default.name == "consumer-shell";
           assert consumer.packages.${system}.node.drvPath == config.packages.node.drvPath;
+          assert consumer.packages.${system}.agtask.drvPath == config.packages.agtask.drvPath;
           assert builtins.attrNames consumer.homeManagerModules == [ "agent-tools" "existing" ];
           assert (consumer.checks.${system} or { }) == { };
           pkgs.runCommand "agent-tools-module-composition" { } "touch $out";
         node-version = config.packages.node.tests.version;
+        agtask = config.packages.agtask.tests.acceptance;
         home-manager = home.config.home.activationPackage;
       };
     };

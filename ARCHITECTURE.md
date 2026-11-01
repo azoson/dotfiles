@@ -16,6 +16,7 @@ sources:
 - [nix/agent-tools/](nix/agent-tools/): 再利用する flake-parts モジュール。Node と Home Manager による skill 配置を提供する。
 - [nix/checks.nix](nix/checks.nix): モジュールの合成、Home Manager、Node の検証。
 - [skills/](skills/): エージェントへの指示と共有設定。
+- [tools/](tools/): skill が使う CLI の実装。agtask の仕様は [docs/agtask.md](docs/agtask.md)。
 
 各端末の構成は利用側の flake が持つ。公開モジュールは、利用側の default package・shell・systems を変更しない。
 Node のパッケージ選択は [node.nix](nix/agent-tools/node.nix)、モデルの役割分担は各 skill の `defaults.toml` を正とする。

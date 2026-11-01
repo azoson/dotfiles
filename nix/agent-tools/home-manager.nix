@@ -1,8 +1,8 @@
-{ agentSkillsModule, skillSource, packageFor }:
+{ agentSkillsModule, skillSource, packagesFor }:
 { config, pkgs, lib, ... }:
 {
   imports = [ agentSkillsModule ];
-  home.packages = [ (packageFor pkgs.stdenv.hostPlatform.system) ];
+  home.packages = packagesFor pkgs.stdenv.hostPlatform.system;
   programs.agent-skills = {
     enable = true;
     sources.dotfiles.path = skillSource;

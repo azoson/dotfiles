@@ -64,12 +64,13 @@ home-manager build --flake '.#user@host'
 home-manager switch --flake '.#user@host'
 ```
 
-Node と `~/.agents/skills/herdr-orchestrate/` が配置される。Claude Code を有効にした場合は `~/.claude/skills/` にも配置される。
+Node、[agtask](agtask.md)、`~/.agents/skills/herdr-orchestrate/` が配置される。Claude Code を有効にした場合は `~/.claude/skills/` にも配置される。
 Node は [node.nix](../nix/agent-tools/node.nix) で指定した公式バイナリを SHA-256 検証付きで取得し、Nix store に配置する。Linux では Nix のライブラリを参照するよう調整する。Node/V8 のソースコンパイルは行わず、`/tmp` のファイルにも依存しない。
 既存ファイルとの衝突は上書きせず報告する。手動配置から移行する場合は、衝突したリンク先・内容を確認してから移動または削除する。
 
 ```bash
 node --version
+agtask --version
 test -f ~/.agents/skills/herdr-orchestrate/SKILL.md
 ```
 

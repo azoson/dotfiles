@@ -16,15 +16,16 @@ in
   config.flake.homeManagerModules.agent-tools = import ./home-manager.nix {
     inherit skillSource;
     agentSkillsModule = inputs.agent-skills.homeManagerModules.default;
-    packageFor = system: withSystem system ({ config, ... }: config.packages.node);
+    packagesFor = system: withSystem system ({ config, ... }: [ config.packages.node config.packages.agtask ]);
   };
 
   config.perSystem = { pkgs, ... }:
     let
       node = import ./node.nix { inherit pkgs; };
+      agtask = import ./agtask.nix { inherit pkgs node; };
     in
     {
-      packages = { inherit node; };
-      devShells.agent-tools = pkgs.mkShell { packages = [ node ]; };
+      packages = { inherit node agtask; };
+      devShells.agent-tools = pkgs.mkShell { packages = [ node agtask ]; };
     };
 }

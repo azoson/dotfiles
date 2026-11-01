@@ -40,6 +40,12 @@ Opus と Grok は `cursor agent`、Astra と Luna は Codex CLI で動く。
 使う場合は依頼で preset 名を指定するか、端末固有の設定に `default_preset = "opus-grok-astra"` を指定する。
 親は Opus profile に合わせ、herdr 内で `cursor agent --model claude-opus-5-5-high` を起動してから依頼する。preset の指定だけでは起動中の親のモデルは変わらない。
 
+## タスクを記録する
+
+`agtask` が使える環境では、skill がタスク・依存・検証の証拠・進捗を Git 管理外の DB に記録する。
+中断した作業は `agtask handoff` の要約を読んで再開できる。DB が子の sandbox の書込範囲外にある場合、子に記録させるには書込許可が要る。
+仕様と保存先は [agtask](agtask.md) を参照する。
+
 ## Node・開発・検証
 
 clone 先で実行する。Node は [node.nix](../nix/agent-tools/node.nix) にバージョンとハッシュを固定した公式バイナリを使う。Node/V8 のソースコンパイルは行わない。
