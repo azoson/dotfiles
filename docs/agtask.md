@@ -150,7 +150,7 @@ CREATE TABLE evidence (
 | kind | text | data |
 | --- | --- | --- |
 | `created` | NULL | `{}` |
-| `state` | 理由（無ければ NULL） | `{"from","to","command"}`。claim は `agent`・`pane`、reject は `fix_rounds` を追加 |
+| `state` | 理由（無ければ NULL） | `{"from","to","command"}`。claim は `agent`・`pane`、reject は `fix_rounds`、submit は `summary`・`round` を追加（[完了サマリー](#完了サマリー)） |
 | `dep_added` / `dep_removed` | NULL | `{"depends_on"}` |
 | `note` / `decision` | 本文 | `{}` |
 | `issue` | 本文 | `{}`。reject が作るものは `{"reject":true,"round":<reject 前の round>}` |
@@ -169,18 +169,18 @@ CREATE TABLE evidence (
 - `agtask --help`、`agtask help [<command>]`、`agtask <command> --help` は使い方（引数・オプション・前提条件）を標準出力に出して 0 で終わる。DB は開かない。
 - `--json` 付きの help と version も DB を開かず、`{"ok":true,"help":"<人間向けと同じ本文>"}` / `{"ok":true,"version":"0.1.0"}` の 1 行 JSON を出す。
 - 文字列の値は前後の空白を除いて保存し、空なら `USAGE`。繰り返し可能なオプションは同じ値を一つにまとめる。
-- `note` と `next` の本文に `-` を渡すと標準入力全体を本文にする。
+- `note` と `next` の本文、`submit --summary` に `-` を渡すと標準入力全体を本文にする。
 - 整数の値は 0 以上の 10 進整数。それ以外は `USAGE`。
 
 ### actor
 
-- 読み取りコマンドは `ls` / `ready` / `show` / `graph` / `handoff`。これらと `init` 以外は actor が必須。`--as` が `AGTASK_AGENT` より優先する。どちらも無ければ `USAGE`。
+- 読み取りコマンドは `ls` / `ready` / `show` / `history` / `graph` / `handoff`。これらと `init` 以外は actor が必須。`--as` が `AGTASK_AGENT` より優先する。どちらも無ければ `USAGE`。
 - 書式は `^[A-Za-z0-9][A-Za-z0-9._:@-]{0,63}$`。`--agent`・`--reviewer` も同じ。
 - herdr-orchestrate では承認済みの子の名前を使う。
 
 ### 出力
 
-- 人間向け: 成功は標準出力に短い要約を出す。書き込みは 1 行（例: `AGT-2: in_progress -> review`）、一覧は表形式。この形式は安定インターフェースではない。`handoff` と `graph` の本文だけは下記の形式に従う。
+- 人間向け: 書き込みは 1 行（例: `AGT-2: in_progress -> review`）、一覧は表形式。`show` は詳細、`history` は記録順の履歴を出す。この形式は機械向けの安定インターフェースではないが、`show`・`history`・`handoff`・`graph` の内容と順序は下記に従う。
 - 人間向けのエラー: 標準エラーに `agtask: <message> [<CODE>]` を 1 行出す。
 - `--json`: 成功・失敗とも標準出力に JSON オブジェクトを 1 行（`JSON.stringify` + 改行）だけ出し、標準エラーには何も出さない。成功は `"ok": true`、失敗は次の形。
 
@@ -315,15 +315,54 @@ CREATE TABLE evidence (
 {"ok":true,"task":"AGT-3","removed":["AGT-1"]}
 ```
 
-### ls / ready / show
+### ls / ready
 
 - `agtask ls [--state <state>]... [--agent <name>] [--plan <version>] [--ready]`: 連番順のタスク一覧。条件は AND。
 - `agtask ready [--agent <name>]`: ready なタスク。`--agent` があれば `agent` が空か一致するものだけ。`ls --ready` と同じ。
 - いずれも `{"ok":true,"tasks":[...]}` を返す。
-- `agtask show <id>`: 共通形に加え、`criteria` の各要素に現ラウンドの最新証拠 `work` / `review`（無ければ null）、`dependents`（このタスクに依存する ID）を付ける。全証拠と全イベントを ID 順で返す。
+
+### show
+
+`agtask show <id>`
+
+オプションなしで 1 タスクの詳細を出す。追加の `--detail` は設けない。全状態が対象で、存在しない ID は `NOT_FOUND`。読み取りは同一スナップショットで行う。
+
+人間向けは `# <id> <title>` を先頭に、次の節を順に出す。未設定の単一値は `-`、空の一覧は `- なし`。長文を省略せず、複数行の値は続きの行を字下げして表示する。
+
+| 節 | 必須の内容・順序 |
+| --- | --- |
+| `Task` | 目的、役割、状態、ready、blocked_from、構成案、修正回数/上限、担当、pane、レビュアー、作成者、作成日時、更新日時 |
+| `Files` | 担当ファイルを登録順に、各パスと `書込可` / `読取のみ` |
+| `Dependencies` | 依存先、未完了の依存先、依存される先を別項目にし、それぞれ ID を連番順に表示 |
+| `Outputs` | 現在の `outputs` を保存順に表示 |
+| `Summary` | [完了サマリー](#完了サマリー)の本文と提出情報、無ければ `未登録` |
+| `Criteria` | 条件番号順に本文、現ラウンドの `work`、`review`。証拠が無ければ `未記録`。あれば証拠 ID、round、verdict、by、at、basis、missing、artifacts を全て表示 |
+| `Decisions` | 全 decision をイベント ID 順に、イベント ID・本文・by・at |
+| `Open issues` | handoff と同じ導出と順序（ブロック理由、未解消 issue、現ラウンドの不備、前回レビュー、未検証） |
+| `Next action` | handoff と同じ導出。保存された `next_action` を優先 |
+
+`Criteria` の work/review は既存 `show --json` と同じ選択（現ラウンド・stage の最新 ID、actor では絞らない）。完了ゲートと handoff の自己検証は引き続き担当者の work だけを使う。全ラウンドの証拠や解消済み issue・通常 note は `history <id>` で確認する旨を末尾に表示する。
+
+`--json` は既存の `task`・`evidence`・`events` を維持し、トップレベルに `summary` のみを追加する。`task` は共通形に加え、`criteria` の各要素に現ラウンドの最新証拠 `work` / `review`（無ければ null）、`dependents`（このタスクに依存する ID、連番順）を持つ。全証拠と全イベントはそれぞれ ID 昇順を維持する。人間向け節を JSON に重複追加しない。
 
 ```json
-{"ok":true,"task":{"id":"AGT-2","...":"...","criteria":[{"index":1,"text":"...","work":{"id":5,"...":"..."},"review":null}],"dependents":["AGT-4"]},"evidence":[],"events":[]}
+{"ok":true,"task":{"id":"AGT-2","...":"...","criteria":[{"index":1,"text":"...","work":{"id":5,"...":"..."},"review":null}],"dependents":["AGT-4"]},"evidence":[],"events":[],"summary":null}
+```
+
+### history
+
+`agtask history <id>`
+
+- 1 タスクの全イベントを `events.id ASC` で出す。フィルター・件数制限・逆順オプションは設けない。全状態が対象で actor は不要。ID の正規化、`NOT_FOUND`、DB エラー、help、終了コードは他の読み取りコマンドと同じ。
+- 「時系列」は DB への記録順を意味する。`at` は表示用 UTC 時刻で、同時刻や時計の巻き戻りでも ID 順を変えない。別タスクのイベントによる ID の飛びは許容する。
+- note / decision / issue / resolved / next / evidence / state / created / dep_added / dep_removed を省略しない。解消済み issue、過去ラウンドの証拠、差し戻された提出も残す。追記専用の既存データを更新しない。
+- 人間向けは `# <id> <title> — history` の後に各イベントを表示する。見出しは `## #<id> <at> <kind> (<by>)`、続けて本文（null なら `-`）と `Data: <data の1行 JSON>` を出す。本文の改行は字下げして保持する。空の履歴は `- なし`。
+- `state` ではさらに `<from> -> <to> / <command>` を表示する。submit ではサマリー本文（無ければ `未登録`）と round（旧データで無ければ `-`）を表示する。reject の理由・修正回数、resolved の参照先、next の消去（text が null）は上記の本文・Data で識別できる。
+- `evidence` イベントでは `data.evidence_id` で同じタスクの証拠を引き、証拠 ID、criterion、round、stage、verdict、basis、missing、artifacts、by、at を表示する。参照先が無ければ `証拠なし: #<evidence_id>` と表示し履歴は読み続ける。イベントの無い証拠について架空のイベントは生成しない。
+- JSON は下記の形。`task` は正規化済み ID 文字列。`events` と `evidence` は `show --json` の同名配列と完全に同じ（それぞれ全件・ID 昇順）。証拠本文を events 内に重複追加せず、利用側が ID で対応付ける。空なら `[]`。取得は同一読み取りトランザクション内。
+
+```json
+{"ok":true,"task":"AGT-2","events":[{"id":21,"task":"AGT-2","kind":"state","text":null,"data":{"from":"in_progress","to":"review","command":"submit","summary":"詳細表示と履歴を追加。受入テスト成功。","round":0},"by":"agtask-impl","at":"2026-11-01T10:40:00.000Z"}],"evidence":[]}
 ```
 
 ### claim / release
@@ -364,9 +403,10 @@ CREATE TABLE evidence (
 
 ### submit / accept / reject
 
-`agtask submit <id> --output <path>... [--next <text>]`
+`agtask submit <id> --output <path>... [--summary <text|->] [--next <text>]`
 
 - actor が `agent` でなければ `NOT_OWNER`。[完了ゲート](#完了ゲート) を満たせば `outputs` を指定値で置き換え、`review` にする。
+- `--summary` は任意の完了サマリー。省略した従来の呼び出しも成功する。保存・再提出・表示の規則は次節に従う。成功 JSON は既存の状態遷移の形を維持する（サマリーは `show` / `handoff` / `history` で取得）。
 
 `agtask accept <id> [--note <text>]`
 
@@ -377,6 +417,26 @@ CREATE TABLE evidence (
 - 実行者は `accept` と同じ。`fix_rounds` を 1 増やし、`--reason` を本文とする `issue` イベント（`data.reject = true`）を追記する。
 - 増やした後の `fix_rounds` が `max_fix_rounds` 以下なら `in_progress`。超えたら `blocked`（`blocked_from = in_progress`、理由 `fix_limit_exceeded`）にする。
 - `next_action` は `--next`、無ければ `修正: <reason>`。返り値に `fix_limit_exceeded`（真偽値）を加え、真なら人間向け出力に `修正上限を超過: <fix_rounds>/<max_fix_rounds>` を出す。終了コードは 0。
+
+### 完了サマリー
+
+サマリーは担当が提出時に記す成果・変更・検証・残件の自由文であり、受入判定ではない。`done` にできるのは従来どおりレビュアーの `accept` だけ。
+
+- `--summary <text>` は前後の空白を除去し、内部の改行を保持する。`--summary -` は UTF-8 の標準入力全体を同じ規則で読む。指定した値が空・空白だけ（空の標準入力を含む）なら `USAGE`。省略とは区別する。ファイル読み込み用オプションや別の summary コマンドは追加しない。
+- 保存先は既存の submit の `state` イベントの `data`。`summary` は本文文字列または省略時の null、`round` は提出時の `tasks.fix_rounds`。`text` は従来どおり null とし、`from` / `to` / `command` を保つ。tasks の列、テーブル、イベント kind、トリガー、`user_version = 1` は変更しない。
+- 状態遷移・outputs 更新・イベント保存は同一の書き込みトランザクション。本文の検証やゲートで失敗したらサマリーもイベントも残さない。サマリーの有無は submit / accept ゲートに影響しない。
+- 表示用の `summary` は、そのタスクの `kind = state` かつ `data.command = submit` のうち **ID 最大のイベントを先に選び**、そこから導出する。本文が無い/null/空なら null。サマリーを持つ古い提出を検索して補わない。
+- 新データに本文がある場合の共通 JSON 形は下記。`event` / `by` / `at` は選んだイベント、`round` は保存された提出ラウンド。これは `show` のトップレベル、`handoff.tasks[]`、`handoff.finished[]` の `summary` に同じ形で加える。共通のタスク表現や `ls` / `ready` の JSON は変更しない。
+
+```json
+{"text":"詳細表示と履歴を追加。\n受入テスト成功。","round":0,"event":21,"by":"agtask-impl","at":"2026-11-01T10:40:00.000Z"}
+```
+
+- 人間向けは `完了サマリー（直近提出）` とし、本文、イベント ID、提出 round、by、at を表示する。提出 round が現在の `fix_rounds` より小さければ `前回提出・差し戻し済み` を併記する。`review` 中はレビュー待ちのままで、サマリーがあっても受入済みとは表示しない。状態は Task（終了済み一覧なら行頭）で確認できる。
+- reject は過去の submit イベントを消去・更新しない。再提出前は前回のサマリーを上記ラベル付きで表示する。再提出で新本文を渡せば新しいものに置き換わり、省略すれば表示用 summary は null。いずれも古い本文は history と show の events に残る。
+- accept / block / unblock / release / fail / cancel / note / next はサマリーを更新しない。レビュー途中の block/unblock や受入後も同じ直近提出を参照する。accept の `--note` をサマリーの代わりには使わない。
+- 旧 DB のタスク、未提出タスク、旧 CLI が作った最新 submit（summary キー無し）は `summary: null`、人間向けは `未登録`。過去の証拠・note・outputs から本文を推測せず、移行や埋め戻しも行わない。旧イベントの round 欠落も許容する。防御的に summary が非文字列、または本文ありでも round が非負の安全整数でない場合は表示用 summary を null とし、生の data は履歴に残す。
+- 新旧 CLI の併用では、旧 CLI は追加 data キーをそのまま読め、旧方式の submit は引き続き可能。新 CLI は上記の欠落値規則で読む。JSON 互換性は既存キー・型・配列順を保った追加のみとし、利用側は未知のキーを許容する。新しい `history` / `--summary` を旧 CLI で実行できるという意味ではない。
 
 ### block / unblock / fail / cancel
 
@@ -448,7 +508,7 @@ flowchart TD
 
 ## handoff の形式
 
-記事の progress note（Task / Outputs / Completed / Decisions / Open issues / Next action）に合わせた Markdown。値が無い項目は `-`、空の節は `- なし`。タスクは位相順で並べる。
+記事の progress note に Summary を加えた Markdown（Task / Outputs / Summary / Completed / Decisions / Open issues / Next action）。値が無い項目は `-`、空の節は `- なし`。ただし Summary が null のときは `- 未登録`。タスクは位相順で並べる。
 
 ```markdown
 # agtask handoff
@@ -472,6 +532,11 @@ flowchart TD
 
 - tools/agtask/agtask.mjs
 
+### Summary
+
+- 完了サマリー（直近提出）: #16 / round 0 / agtask-impl / 2026-11-01T10:40:00.000Z / 前回提出・差し戻し済み
+- 詳細表示と履歴を追加。受入テスト成功。
+
 ### Completed
 
 - [1] node --test 'tools/agtask/test/*.test.mjs' が全て成功する — 自己検証: node --test 'tools/agtask/test/*.test.mjs': 38 pass, 0 fail
@@ -492,11 +557,13 @@ flowchart TD
 
 ## 終了済み
 
-- AGT-1 [done] 仕様を確定する — Outputs: docs/agtask.md
+- AGT-1 [done] 仕様を確定する — Outputs: docs/agtask.md — Summary: 未登録
 ```
 
 各節の内容:
 
+- Summary: [完了サマリー](#完了サマリー)の共通規則に従う。本文は省略せず、改行の続きは字下げして表示する。ID 指定と `--all` でも同じ節を出す。
+- 終了済みの各行: 従来の Outputs の後に ` — Summary: 未登録` または ` — Summary: <本文> (#<event>, round <round>, <by>, <at>)` を追加する。本文の改行は文字としての `\n` に置き換えて 1 行を保つ。差し戻し済みなら括弧内に `前回提出・差し戻し済み` を併記する。done / failed / cancelled の区別と、本文を省略しないことを維持する。
 - Completed: 現ラウンドで最新の `review` 証拠が `verified` なら `受入確認: <basis>`、そうでなく `agent` の最新 `work` 証拠が `verified` なら `自己検証: <basis>`。
 - Decisions: `decision` イベントを `#<id> <text> (<actor>)` で ID 順に。
 - Open issues: 次の順に並べる。
@@ -526,16 +593,17 @@ flowchart TD
    "task":{"goal":"...","role":"implementation","state":"in_progress","plan":"v2","fix_rounds":1,"max_fix_rounds":2,
            "agent":"agtask-impl","pane":"w1:p3","reviewer":"agtask-review","deps":[{"id":"AGT-1","state":"done"}],"files":[]},
    "outputs":["tools/agtask/agtask.mjs"],
+   "summary":{"text":"詳細表示と履歴を追加。受入テスト成功。","round":0,"event":16,"by":"agtask-impl","at":"2026-11-01T10:40:00.000Z"},
    "completed":[{"criterion":1,"text":"...","stage":"work","basis":"..."}],
    "decisions":[{"event":12,"text":"ID の正規化は大文字","by":"agtask-impl","at":"..."}],
    "open_issues":[{"type":"issue","event":18,"text":"...","reject":true},
                   {"type":"previous_review","criterion":2,"verdict":"incorrect","basis":"...","missing":null},
                   {"type":"unverified","criterion":3,"text":"..."}],
    "next_action":"修正: claim の競合テストが無い"}],
- "finished":[{"id":"AGT-1","title":"仕様を確定する","state":"done","outputs":["docs/agtask.md"]}]}
+ "finished":[{"id":"AGT-1","title":"仕様を確定する","state":"done","outputs":["docs/agtask.md"],"summary":null}]}
 ```
 
-`open_issues[].type` は `blocked` / `issue` / `evidence` / `previous_review` / `unverified`。
+`open_issues[].type` は `blocked` / `issue` / `evidence` / `previous_review` / `unverified`。summary 以外の JSON フィールド、タスクの選択・並び順・counts・ready の意味は従来どおり。finished の差し戻し表示判定は DB の fix_rounds との比較で行い、そのための新フィールドは追加しない。
 
 ## 受け入れテストの観点
 
@@ -562,5 +630,23 @@ flowchart TD
 - 失敗時の原子性: エラーになった書き込みコマンドの後で DB が変わっていない。
 - 出力: `--json` は成功・失敗とも標準出力の 1 行 JSON のみ、人間向けエラーは標準エラー。
 - graph: text と mermaid が上記形式に一致、位相順と同順位の連番順、`--json` の nodes / edges。
-- handoff: 6 節の並び、Open issues の順序と内容、Next action の導出、ID 指定と `--all`、`--json` の構造。
+- handoff: Summary を含む 7 節の並び、Open issues の順序と内容、Next action の導出、ID 指定と `--all`、`--json` の構造。
 - DB_ACCESS: 書込不可のディレクトリにある DB で終了コード 6（root で実行される環境では skip）。
+
+### 詳細表示・サマリー・履歴の検証
+
+以下を実装時に CLI の受け入れテストへ追加する。計画段階では保存先・既存コード・JSON 形との整合を確認し、新機能の実行結果とは区別する。
+
+| ケース | 操作と確認する結果 |
+| --- | --- |
+| show 詳細 | 目的、担当・レビュー・pane、read/write ファイル、deps/blocked_by/dependents、outputs、next、決定、未解消 issue を持つタスクを作る。人間向け各節の順序・全項目・長文/改行・空値を確認。JSON の従来フィールド・型・ID 順が変わらず、追加はトップレベル summary のみ |
+| 条件と証拠 | work/review の verified・incorrect・unresolved と missing/artifacts を用意し、Criteria に全情報が出ることを確認。reject 後は現 round の証拠のみを選び、過去分は history と show.evidence に残る。既存の他人の work 証拠の表示とゲート判定も維持 |
+| 旧 DB / 未登録 | 変更前 CLI で作ったスキーマ 1 の fixture（未提出・review・done を含む）を新 CLI で init し直さず読む。summary キーの無い submit、note や accept --note に本文があるケースも show/handoff で null / 未登録。schema・user_version・旧イベントが不変 |
+| 保存と stdin | submit --summary の文字列と標準入力で、前後の空白除去・複数行・日本語・引用符を確認。state.data の summary/round と同じイベントの from/to/command を検査。show と handoff の summary オブジェクトが一致し、history でも本文・提出元が分かる |
+| 省略とエラー | 従来の submit --output は成功し data.summary は null。空文字・空白・空 stdin は USAGE、状態/担当違反とゲート失敗は既存のエラー。失敗前後の DB スナップショットが同じ。summary があっても証拠や output の不足を通さない |
+| reject / 再提出 | round 0 のサマリー A → reject（round 1）で、直近 summary は A・round 0、表示は差し戻し済み。issue 解消と全 work 証拠の再登録後、B で再提出すると B・round 1。再度 reject して summary 省略で再提出すると null（A/B に戻らない）。history には各 submit が A/B/null と元の round のまま残る |
+| その他の状態 | review の block/unblock と accept 後に同じ summary が残る。reject 上限超過の blocked も差し戻しラベルを出す。release、fail、cancel、note、next は本文を上書きしない。サマリーの無い done でも正常に読める |
+| handoff の全経路 | ID なしの tasks と finished、ID 指定、--all で summary を表示。done/failed/cancelled の終了済み行には本文または未登録。改行は終了済み行のみ文字列の `\n`。既存 6 節の相対順、counts、ready、Next action を保つ |
+| history 順序・内容 | created から依存変更・claim・note/decision/issue/resolved・next（消去含む）・evidence・submit・reject・再提出・accept までを確認。fixture のイベントを同時刻/逆行時刻で INSERT し、時刻に依らず ID 昇順。別タスクのイベントは混じらず ID の飛びを許容。human の state と証拠の詳細、JSON の events/evidence が show の配列と一致 |
+| 不完全な既存データ | submit の summary/round 欠落や不正な型で落ちず、表示用 summary は null、生 data は維持。証拠の参照先欠落は history human で明示、JSON は原状の events/evidence。イベント無しなら空履歴。既存レコードの UPDATE/DELETE は使わず fixture の INSERT で準備 |
+| 互換性と I/O | 旧 CLI が新しい submit イベントの追加キーを読め、旧 CLI で再提出した後は新 CLI の summary が null。既存受入テストを継続し、人間向け期待値は新しい show/7 節 handoff に更新。history を help テストへ加え、actor 不要、ID 正規化、NOT_FOUND、DB 未初期化、1 行 JSON・stderr 空・終了コードを検証 |

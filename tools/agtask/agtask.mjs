@@ -9,27 +9,27 @@ const VERSION = '0.1.0';
 const states = ['todo', 'in_progress', 'review', 'done', 'blocked', 'failed', 'cancelled'];
 const roles = ['planning', 'research', 'implementation', 'review', 'cli'];
 const terminal = ['done', 'failed', 'cancelled'];
-const reads = ['ls', 'ready', 'show', 'graph', 'handoff'];
+const reads = ['ls', 'ready', 'show', 'history', 'graph', 'handoff'];
 const signatures = {
   init: '[--prefix <PREFIX>]',
   add: '<title> --role <role> --goal <text> --criterion <text>... [--write <path>]... [--read <path>]... [--dep <id>]... [--agent <name>] [--reviewer <name>] [--plan <version>] [--max-fix-rounds <n>] [--next <text>]',
   dep: 'add|rm <id> <depends-on>...',
   ls: '[--state <state>]... [--agent <name>] [--plan <version>] [--ready]',
-  ready: '[--agent <name>]', show: '<id>', claim: '<id> [--pane <pane>]',
+  ready: '[--agent <name>]', show: '<id>', history: '<id>', claim: '<id> [--pane <pane>]',
   release: '<id> --reason <text> [--unassign]',
   note: '<id> <text|-> [--kind note|decision|issue] [--resolve <event-id>]',
   next: '<id> (<text|-> | --clear)',
   evidence: '<id> --criterion <n> --verdict verified|incorrect|unresolved --basis <text> [--missing <text>] [--artifact <path>]...',
-  submit: '<id> --output <path>... [--next <text>]', accept: '<id> [--note <text>]',
+  submit: '<id> --output <path>... [--summary <text|->] [--next <text>]', accept: '<id> [--note <text>]',
   reject: '<id> --reason <text> [--next <text>]', block: '<id> --reason <text>',
   unblock: '<id> [--note <text>] [--max-fix-rounds <n>]', fail: '<id> --reason <text>',
   cancel: '<id> --reason <text>', graph: '[--format text|mermaid]', handoff: '[<id>...] [--all]',
 };
 const allowed = {
   init: ['prefix'], add: ['role', 'goal', 'criterion', 'write', 'read', 'dep', 'agent', 'reviewer', 'plan', 'max-fix-rounds', 'next'],
-  dep: [], ls: ['state', 'agent', 'plan', 'ready'], ready: ['agent'], show: [], claim: ['pane'],
+  dep: [], ls: ['state', 'agent', 'plan', 'ready'], ready: ['agent'], show: [], history: [], claim: ['pane'],
   release: ['reason', 'unassign'], note: ['kind', 'resolve'], next: ['clear'],
-  evidence: ['criterion', 'verdict', 'basis', 'missing', 'artifact'], submit: ['output', 'next'],
+  evidence: ['criterion', 'verdict', 'basis', 'missing', 'artifact'], submit: ['output', 'summary', 'next'],
   accept: ['note'], reject: ['reason', 'next'], block: ['reason'], unblock: ['note', 'max-fix-rounds'],
   fail: ['reason'], cancel: ['reason'], graph: ['format'], handoff: ['all'],
 };
@@ -290,16 +290,19 @@ function execute(command, p, v, actor) {
     const full = ordered.filter(t => ids.length ? ids.includes(t.id) : v.all || !terminal.includes(t.state));
     const counts = Object.fromEntries(states.map(s => [s, tasks.filter(t => t.state === s).length]));
     const result = { db: dbPath, generated_at: now(), counts, ready: tasks.filter(t => t.ready).map(t => t.id), tasks: full.map(handoffTask),
-      finished: ids.length || v.all ? [] : ordered.filter(t => terminal.includes(t.state)).map(({ id, title, state, outputs }) => ({ id, title, state, outputs })) };
+      finished: ids.length || v.all ? [] : ordered.filter(t => terminal.includes(t.state)).map(t => ({ id: t.id, title: t.title, state: t.state, outputs: t.outputs, summary: summaryFor(t) })) };
     return { ...result, body: handoffMarkdown(result) };
   }
   if (command === 'next') count(v.clear ? 1 : 2); else if (command === 'note') count(2); else count(1);
   const t = getTask(p[0]);
-  if (command === 'show') {
+  if (command === 'show' || command === 'history') {
+    const evidence = all('SELECT * FROM evidence WHERE task_id=? ORDER BY id', t.id).map(evidenceJSON);
+    const events = all('SELECT * FROM events WHERE task_id=? ORDER BY id', t.id).map(eventJSON);
+    if (command === 'history') return { task: t.id, events, evidence, body: historyMarkdown(t, events, evidence) };
     const task = taskJSON(t);
     task.criteria = task.criteria.map(c => ({ ...c, work: latest(t, c.index, 'work'), review: latest(t, c.index, 'review') }));
     task.dependents = all('SELECT t.id FROM deps d JOIN tasks t ON t.id=d.task_id WHERE d.depends_on=? ORDER BY t.seq', t.id).map(d => d.id);
-    return { task, evidence: all('SELECT * FROM evidence WHERE task_id=? ORDER BY id', t.id).map(evidenceJSON), events: all('SELECT * FROM events WHERE task_id=? ORDER BY id', t.id).map(eventJSON) };
+    return { task, evidence, events, summary: summaryFor(t), body: showMarkdown(task, events) };
   }
   if (command === 'note' || command === 'next') {
     const text = v.clear ? null : clean(p[1] === '-' ? readFileSync(0, 'utf8') : p[1]);
@@ -349,8 +352,9 @@ function execute(command, p, v, actor) {
   stateCheck(t, from[command]);
   if (command === 'release') return transition(t, 'todo', command, actor, required('reason'), { pane: null, ...(v.unassign ? { agent: null } : {}) });
   if (command === 'submit') {
+    const summary = v.summary === undefined ? null : clean(v.summary === '-' ? readFileSync(0, 'utf8') : v.summary);
     owner(t, actor); gate(t, 'work', list('output'));
-    return transition(t, 'review', command, actor, null, { outputs: JSON.stringify(list('output')), next_action: v.next ?? null });
+    return transition(t, 'review', command, actor, null, { outputs: JSON.stringify(list('output')), next_action: v.next ?? null }, { summary, round: t.fix_rounds });
   }
   if (command === 'accept' || command === 'reject') {
     reviewer(t, actor);
@@ -410,11 +414,11 @@ function handoffTask(t) {
     done: 'なし', failed: 'なし', cancelled: 'なし',
   };
   return { id: t.id, title: t.title, task: { goal: t.goal, role: t.role, state: t.state, plan: t.plan, fix_rounds: t.fix_rounds, max_fix_rounds: t.max_fix_rounds, agent: t.agent, pane: t.pane, reviewer: t.reviewer,
-    deps: t.deps.map(id => ({ id, state: getTask(id).state })), files: t.files }, outputs: t.outputs, completed, decisions, open_issues: open, next_action: t.next_action || next[t.state] };
+    deps: t.deps.map(id => ({ id, state: getTask(id).state })), files: t.files }, outputs: t.outputs, summary: summaryFor(t), completed, decisions, open_issues: open, next_action: t.next_action || next[t.state] };
 }
 function handoffMarkdown(h) {
   const lines = ['# agtask handoff', '', `- DB: ${h.db}`, `- 生成: ${h.generated_at}`, `- 状態: ${['todo', 'in_progress', 'review', 'blocked', 'done', 'failed', 'cancelled'].map(s => `${s} ${h.counts[s]}`).join(' / ')}`, `- ready: ${h.ready.join(', ') || '-'}`];
-  const section = (title, values) => lines.push('', `### ${title}`, '', ...(values.length ? values.map(v => `- ${v}`) : ['- なし']));
+  const section = (title, values) => lines.push('', `### ${title}`, '', ...(values.length ? values.map(v => `- ${indent(v)}`) : ['- なし']));
   for (const item of h.tasks) {
     const t = item.task;
     lines.push('', `## ${item.id} ${item.title}`);
@@ -422,17 +426,75 @@ function handoffMarkdown(h) {
       `担当: ${t.agent || '-'}${t.pane ? ` (${t.pane})` : ''} / レビュー: ${t.reviewer || '-'}`, `依存: ${t.deps.map(d => `${d.id} (${d.state})`).join(', ') || '-'}`,
       `担当ファイル: ${t.files.map(f => `${f.path} (${f.writable ? '書込可' : '読取のみ'})`).join(', ') || '-'}`]);
     section('Outputs', item.outputs);
+    section('Summary', summaryLines(item.summary, t.fix_rounds));
     section('Completed', item.completed.map(c => `[${c.criterion}] ${c.text} — ${c.stage === 'review' ? '受入確認' : '自己検証'}: ${c.basis}`));
     section('Decisions', item.decisions.map(d => `#${d.event} ${d.text} (${d.by})`));
-    section('Open issues', item.open_issues.map(i => {
-      if (i.type === 'blocked') return `ブロック: ${i.text}`;
-      if (i.type === 'issue') return `#${i.event} ${i.reject ? 'reject: ' : ''}${i.text}`;
-      if (i.type === 'unverified') return `[${i.criterion}] 未検証: ${i.text}`;
-      return `[${i.criterion}] ${i.type === 'previous_review' ? '前回レビュー ' : ''}${i.verdict}: ${i.basis}${i.type !== 'previous_review' && i.verdict === 'unresolved' ? ` / 不足: ${i.missing}` : ''}`;
-    }));
+    section('Open issues', item.open_issues.map(issueLine));
     section('Next action', [item.next_action]);
   }
-  if (h.finished.length) lines.push('', '## 終了済み', '', ...h.finished.map(t => `- ${t.id} [${t.state}] ${t.title} — Outputs: ${t.outputs.join(', ') || '-'}`));
+  if (h.finished.length) lines.push('', '## 終了済み', '', ...h.finished.map(t => `- ${t.id} [${t.state}] ${t.title} — Outputs: ${t.outputs.join(', ') || '-'} — Summary: ${finishedSummary(t)}`));
+  return lines.join('\n');
+}
+// Presentation is derived from append-only events; never backfill legacy records.
+const indent = value => String(value ?? '-').replaceAll('\n', '\n  ');
+function eventSummary(e) {
+  const { summary, round } = e?.data || {};
+  return typeof summary === 'string' && summary.trim() && Number.isSafeInteger(round) && round >= 0
+    ? { text: summary, round, event: e.id, by: e.by, at: e.at } : null;
+}
+function summaryFor(t) {
+  const e = one("SELECT * FROM events WHERE task_id=? AND kind='state' AND json_extract(data,'$.command')='submit' ORDER BY id DESC LIMIT 1", t.id);
+  return eventSummary(e && eventJSON(e));
+}
+const summaryMeta = (s, round) => `#${s.event} / round ${s.round} / ${s.by} / ${s.at}${s.round < round ? ' / 前回提出・差し戻し済み' : ''}`;
+function summaryLines(s, round) {
+  return s ? [`完了サマリー（直近提出）: ${summaryMeta(s, round)}`, s.text] : ['未登録'];
+}
+function finishedSummary(t) {
+  const s = t.summary;
+  return s ? `${s.text.replaceAll('\n', '\\n')} (${summaryMeta(s, getTask(t.id).fix_rounds)})` : '未登録';
+}
+function issueLine(i) {
+  if (i.type === 'blocked') return `ブロック: ${i.text}`;
+  if (i.type === 'issue') return `#${i.event} ${i.reject ? 'reject: ' : ''}${i.text}`;
+  if (i.type === 'unverified') return `[${i.criterion}] 未検証: ${i.text}`;
+  return `[${i.criterion}] ${i.type === 'previous_review' ? '前回レビュー ' : ''}${i.verdict}: ${i.basis}${i.type !== 'previous_review' && i.verdict === 'unresolved' ? ` / 不足: ${i.missing}` : ''}`;
+}
+function evidenceLines(e) {
+  return [`証拠 #${e.id} / criterion ${e.criterion} / round ${e.round} / ${e.stage} / ${e.verdict} / by ${e.by} / at ${e.at}`,
+    `basis: ${e.basis}`, `missing: ${e.missing ?? '-'}`, `artifacts: ${e.artifacts.length ? e.artifacts.join(', ') : '-'}`];
+}
+function showMarkdown(t, events) {
+  const h = handoffTask(t), lines = [`# ${t.id} ${t.title}`];
+  const section = (title, values) => lines.push('', `### ${title}`, '', ...(values.length ? values.map(v => `- ${indent(v)}`) : ['- なし']));
+  section('Task', [`目的: ${t.goal}`, `役割: ${t.role}`, `状態: ${t.state}`, `ready: ${t.ready}`, `blocked_from: ${t.blocked_from ?? '-'}`,
+    `構成案: ${t.plan ?? '-'}`, `修正: ${t.fix_rounds}/${t.max_fix_rounds}`, `担当: ${t.agent ?? '-'}`, `pane: ${t.pane ?? '-'}`, `レビュアー: ${t.reviewer ?? '-'}`,
+    `作成者: ${t.created_by}`, `作成日時: ${t.created_at}`, `更新日時: ${t.updated_at}`]);
+  section('Files', t.files.map(f => `${f.path} (${f.writable ? '書込可' : '読取のみ'})`));
+  section('Dependencies', [`依存先: ${t.deps.join(', ') || '-'}`, `未完了の依存先: ${t.blocked_by.join(', ') || '-'}`, `依存される先: ${t.dependents.join(', ') || '-'}`]);
+  section('Outputs', t.outputs);
+  section('Summary', summaryLines(h.summary, t.fix_rounds));
+  section('Criteria', t.criteria.flatMap(c => [`[${c.index}] ${c.text}`, ...['work', 'review'].flatMap(stage => c[stage] ? [`${stage}:`, ...evidenceLines(c[stage])] : [`${stage}: 未記録`])]));
+  section('Decisions', events.filter(e => e.kind === 'decision').map(e => `#${e.id} ${e.text} / by ${e.by} / at ${e.at}`));
+  section('Open issues', h.open_issues.map(issueLine));
+  section('Next action', [h.next_action]);
+  lines.push('', `全ラウンドの証拠・解消済み issue・通常 note: agtask history ${t.id}`);
+  return lines.join('\n');
+}
+function historyMarkdown(t, events, evidence) {
+  const lines = [`# ${t.id} ${t.title} — history`];
+  if (!events.length) lines.push('', '- なし');
+  for (const e of events) {
+    lines.push('', `## #${e.id} ${e.at} ${e.kind} (${e.by})`, '', indent(e.text), `Data: ${JSON.stringify(e.data)}`);
+    if (e.kind === 'state') {
+      lines.push(`${e.data.from ?? '-'} -> ${e.data.to ?? '-'} / ${e.data.command ?? '-'}`);
+      if (e.data.command === 'submit') lines.push(`Summary: ${indent(eventSummary(e)?.text ?? '未登録')}`, `round: ${e.data.round ?? '-'}`);
+    }
+    if (e.kind === 'evidence') {
+      const found = evidence.find(v => v.id === e.data.evidence_id);
+      lines.push(...(found ? evidenceLines(found).map(indent) : [`証拠なし: #${e.data.evidence_id}`]));
+    }
+  }
   return lines.join('\n');
 }
 function ensureWAL(deadline) {

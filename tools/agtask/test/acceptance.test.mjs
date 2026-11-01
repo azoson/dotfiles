@@ -300,6 +300,10 @@ test('handoff sections, structured evidence/issues and next actions', t => {
 
 - なし
 
+### Summary
+
+- 未登録
+
 ### Completed
 
 - なし
@@ -386,7 +390,7 @@ test('every criterion needs its latest evidence and failed writes leave no rows'
 
 test('all help forms and version honor JSON without opening a DB', t => {
   const f = fixture(t, false);
-  const commands = ['init', 'add', 'dep', 'ls', 'ready', 'show', 'claim', 'release', 'note', 'next', 'evidence', 'submit', 'accept', 'reject', 'block', 'unblock', 'fail', 'cancel', 'graph', 'handoff'];
+  const commands = ['init', 'add', 'dep', 'ls', 'ready', 'show', 'history', 'claim', 'release', 'note', 'next', 'evidence', 'submit', 'accept', 'reject', 'block', 'unblock', 'fail', 'cancel', 'graph', 'handoff'];
   const forms = [['--help'], ['-h'], ['help'], ...commands.flatMap(c => [['help', c], [c, '--help'], [c, '-h']])];
   for (const args of forms) {
     const result = f.call(args);
@@ -419,4 +423,207 @@ test('init WAL negotiation respects its busy deadline', t => {
   });
   f.call(['init']);
   assert.equal(f.sql(connection => connection.prepare('PRAGMA journal_mode').get().journal_mode), 'wal');
+});
+
+// Snapshot of the CLI before summary/history support, kept executable for both directions.
+const legacyCli = fileURLToPath(new URL('./fixtures/legacy-agtask.mjs', import.meta.url));
+function legacy(f, args) {
+  const r = spawnSync(process.execPath, [legacyCli, ...args, '--json'], { cwd: f.cwd, env: f.env, encoding: 'utf8' });
+  assert.equal(r.stderr, '');
+  const data = JSON.parse(r.stdout); assertStatus(data, r.status); assert.equal(r.status, 0, r.stdout); return data;
+}
+const snapshot = f => f.sql(db => ['sqlite_schema', 'meta', 'tasks', 'criteria', 'task_files', 'deps', 'events', 'evidence'].map(table => db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()));
+const submitSummary = (f, id, text) => f.as(['submit', id, '--output', 'out', ...(text === undefined ? [] : ['--summary', text])]);
+function resolveReject(f, id) {
+  const issue = f.call(['show', id]).events.filter(e => e.kind === 'issue').at(-1);
+  f.as(['note', id, 'fixed', '--resolve', String(issue.id)]); f.evidence(id);
+}
+
+test('summary strings/stdin, atomic errors, gates and unchanged common task JSON', t => {
+  const f = fixture(t), a = f.add(); f.as(['claim', a.id]);
+  for (const input of ['', ' ', '-']) {
+    const before = snapshot(f);
+    f.call(['submit', a.id, '--output', 'out', '--summary', input, '--as', 'worker'], 'USAGE', { input: ' \n ' });
+    assert.deepEqual(snapshot(f), before);
+  }
+  let before = snapshot(f);
+  submitSummaryError(['submit', a.id, '--output', 'out', '--summary', 'body'], 'GATE_FAILED');
+  f.evidence(a.id);
+  submitSummaryError(['submit', a.id, '--summary', 'body'], 'GATE_FAILED');
+  submitSummaryError(['submit', a.id, '--output', 'out', '--summary', 'body'], 'NOT_OWNER', 'other');
+  const text = '日本語 "引用"\n検証済み';
+  const r = f.call(['submit', a.id, '--output', 'out', '--summary', '-', '--as', 'worker'], undefined, { input: `  ${text}\n ` });
+  assert.equal(Object.hasOwn(r.task, 'summary'), false);
+  const show = f.call(['show', a.id]);
+  assert.deepEqual(show.events.at(-1).data, { from: 'in_progress', to: 'review', command: 'submit', summary: text, round: 0 });
+  assert.equal(show.events.at(-1).text, null);
+  assert.deepEqual(show.summary, { text, round: 0, event: r.event, by: 'worker', at: show.events.at(-1).at });
+  assert.deepEqual(f.call(['handoff', a.id]).tasks[0].summary, show.summary);
+  assert.equal(Object.hasOwn(f.call(['ls']).tasks[0], 'summary'), false);
+  submitSummaryError(['submit', a.id, '--output', 'out', '--summary', 'body'], 'INVALID_STATE');
+  function submitSummaryError(args, code, actor = 'worker') {
+    before = snapshot(f); f.as(args, actor, code); assert.deepEqual(snapshot(f), before);
+  }
+});
+
+test('reject/resubmit selects latest submit including omitted summary, preserves history and rounds', t => {
+  const f = fixture(t), a = f.add('--reviewer', 'reviewer'); f.as(['claim', a.id]); f.evidence(a.id);
+  submitSummary(f, a.id, ' A ');
+  f.evidence(a.id, 'reviewer', 'incorrect');
+  f.as(['reject', a.id, '--reason', 'fix'], 'reviewer');
+  let s = f.call(['show', a.id]); assert.equal(s.summary.text, 'A'); assert.equal(s.summary.round, 0);
+  assert.equal(s.task.criteria[0].work, null); assert.equal(s.evidence.length, 2);
+  assert.match(f.invoke(['show', a.id]).stdout, /前回提出・差し戻し済み/);
+  assert.match(f.invoke(['handoff', a.id]).stdout, /前回提出・差し戻し済み/);
+  resolveReject(f, a.id); submitSummary(f, a.id, 'B');
+  assert.equal(f.call(['show', a.id]).summary.round, 1);
+  f.as(['reject', a.id, '--reason', 'again'], 'reviewer'); resolveReject(f, a.id); submitSummary(f, a.id);
+  assert.equal(f.call(['show', a.id]).summary, null);
+  const submits = f.call(['history', a.id]).events.filter(e => e.data.command === 'submit');
+  assert.deepEqual(submits.map(e => [e.data.summary, e.data.round]), [['A', 0], ['B', 1], [null, 2]]);
+  f.evidence(a.id, 'reviewer'); f.as(['accept', a.id, '--note', 'not a summary'], 'reviewer');
+  assert.equal(f.call(['show', a.id]).summary, null);
+});
+
+test('summary survives review block/unblock, notes, accept and all handoff paths', t => {
+  const f = fixture(t), a = f.add('--reviewer', 'reviewer'); f.as(['claim', a.id]); f.evidence(a.id); submitSummary(f, a.id, 'line1\nline2');
+  const expected = f.call(['show', a.id]).summary;
+  f.as(['block', a.id, '--reason', 'pause']); f.as(['unblock', a.id]);
+  f.as(['note', a.id, 'note']); f.as(['next', a.id, 'next']);
+  assert.deepEqual(f.call(['show', a.id]).summary, expected);
+  f.evidence(a.id, 'reviewer'); f.as(['accept', a.id], 'reviewer');
+  assert.deepEqual(f.call(['handoff']).finished[0].summary, expected);
+  assert.match(f.invoke(['handoff']).stdout, /Summary: line1\\nline2/);
+  for (const args of [['handoff', a.id], ['handoff', '--all']]) {
+    assert.deepEqual(f.call(args).tasks[0].summary, expected);
+    const human = f.invoke(args).stdout;
+    const headings = [...human.matchAll(/^### (.+)$/gm)].map(m => m[1]);
+    assert.deepEqual(headings, ['Task', 'Outputs', 'Summary', 'Completed', 'Decisions', 'Open issues', 'Next action']);
+    assert.match(human, /line1\n  line2/);
+  }
+});
+
+test('release/fail/cancel and fix-limit blocked preserve submitted summary', t => {
+  const f = fixture(t);
+  for (const ending of ['release', 'fail', 'cancel', 'blocked']) {
+    const a = f.add('--max-fix-rounds', '0'); f.as(['claim', a.id]); f.evidence(a.id); submitSummary(f, a.id, ending);
+    const summary = f.call(['show', a.id]).summary;
+    f.as(['reject', a.id, '--reason', 'fix'], 'reviewer');
+    assert.match(f.invoke(['show', a.id]).stdout, /前回提出・差し戻し済み/);
+    if (ending === 'release') { f.as(['unblock', a.id, '--max-fix-rounds', '1']); f.as(['release', a.id, '--reason', 'handoff']); }
+    if (['fail', 'cancel'].includes(ending)) f.as([ending, a.id, '--reason', 'stop']);
+    assert.deepEqual(f.call(['show', a.id]).summary, summary);
+  }
+  const finished = f.call(['handoff']).finished;
+  assert.deepEqual(finished.map(v => v.state), ['failed', 'cancelled']);
+  assert.ok(finished.every(v => v.summary));
+});
+
+test('legacy schema 1 fixture reads without initialization; bidirectional CLI compatibility', t => {
+  const f = fixture(t, false);
+  legacy(f, ['init']);
+  for (const state of ['todo', 'review', 'done']) {
+    const a = legacy(f, ['add', state, '--role', 'cli', '--goal', 'old goal', '--criterion', 'old criterion', '--as', 'parent']).task;
+    legacy(f, ['note', a.id, 'old note', '--as', 'worker']);
+    if (state !== 'todo') {
+      legacy(f, ['claim', a.id, '--as', 'worker']); legacy(f, ['evidence', a.id, '--criterion', '1', '--verdict', 'verified', '--basis', 'pass', '--as', 'worker']);
+      legacy(f, ['submit', a.id, '--output', 'old-out', '--as', 'worker']);
+    }
+    if (state === 'done') {
+      legacy(f, ['evidence', a.id, '--criterion', '1', '--verdict', 'verified', '--basis', 'pass', '--as', 'reviewer']);
+      legacy(f, ['accept', a.id, '--note', 'old acceptance note', '--as', 'reviewer']);
+    }
+  }
+  const before = snapshot(f);
+  for (const id of ['AGT-1', 'AGT-2', 'AGT-3']) {
+    const { ok, summary, ...current } = f.call(['show', id]);
+    const { ok: legacyOk, ...previous } = legacy(f, ['show', id]);
+    assert.equal(summary, null); assert.deepEqual(current, previous);
+    assert.equal(f.call(['handoff', id]).tasks[0].summary, null);
+    assert.match(f.invoke(['show', id]).stdout, /### Summary\n\n- 未登録/);
+  }
+  assert.deepEqual(snapshot(f), before);
+  assert.equal(f.sql(db => db.prepare('PRAGMA user_version').get().user_version), 1);
+  f.as(['claim', 'AGT-1']); f.evidence('AGT-1'); submitSummary(f, 'AGT-1', 'new summary');
+  assert.equal(legacy(f, ['show', 'AGT-1']).events.at(-1).data.summary, 'new summary');
+  legacy(f, ['reject', 'AGT-1', '--reason', 'fix', '--as', 'reviewer']); resolveReject(f, 'AGT-1');
+  legacy(f, ['submit', 'AGT-1', '--output', 'old-out', '--as', 'worker']);
+  assert.equal(f.call(['show', 'AGT-1']).summary, null);
+});
+
+test('show detailed sections, all evidence fields, ordering and owner-specific gate remain intact', t => {
+  const f = fixture(t), dep = f.add(), a = f.add('--dep', dep.id, '--write', 'z-write', '--read', 'a-read', '--plan', 'v1', '--reviewer', 'reviewer');
+  const dependent = f.add('--dep', a.id);
+  let body = f.invoke(['show', a.id]).stdout;
+  assert.match(body, /依存先: AGT-1/); assert.match(body, /未完了の依存先: AGT-1/); assert.match(body, /依存される先: AGT-3/);
+  f.as(['dep', 'rm', a.id, dep.id]); f.as(['claim', a.id, '--pane', 'w1:p9']);
+  f.evidence(a.id, 'worker', 'unresolved', ['--missing', 'need\nmore', '--artifact', 'test-a']);
+  f.as(['note', a.id, 'long\ndecision', '--kind', 'decision']); f.as(['note', a.id, 'open\nissue', '--kind', 'issue']);
+  f.as(['next', a.id, 'next\nstep']);
+  const pending = f.call(['show', a.id]).task.criteria[0].work;
+  body = f.invoke(['show', a.id]).stdout;
+  for (const value of [`証拠 #${pending.id}`, 'round 0', 'unresolved', 'by worker', pending.at, 'basis: command: pass', 'missing: need\n  more', 'artifacts: test-a']) assert.ok(body.includes(value), value);
+  f.sql(db => db.prepare("INSERT INTO evidence(task_id,criterion,round,stage,verdict,basis,missing,artifacts,actor,at) VALUES(?,1,0,'work','verified','outsider',NULL,'[]','other','2000')").run(a.id));
+  const show = f.call(['show', a.id]); assert.equal(show.task.criteria[0].work.by, 'other');
+  submitSummaryError();
+  body = f.invoke(['show', a.id]).stdout;
+  assert.deepEqual([...body.matchAll(/^### (.+)$/gm)].map(m => m[1]), ['Task', 'Files', 'Dependencies', 'Outputs', 'Summary', 'Criteria', 'Decisions', 'Open issues', 'Next action']);
+  assert.ok(body.indexOf('z-write') < body.indexOf('a-read'));
+  for (const value of ['目的: Goal', 'ready: false', 'blocked_from: -', '担当: worker', 'pane: w1:p9', 'レビュアー: reviewer', '作成者: parent', '作成日時:', '更新日時:', 'long\n  decision', 'open\n  issue', 'next\n  step', 'artifacts:', 'missing:', 'by other', 'history AGT-2']) assert.ok(body.includes(value), value);
+  assert.ok(f.call(['handoff', a.id]).tasks[0].open_issues.some(i => i.verdict === 'unresolved'));
+  f.evidence(a.id); submitSummary(f, a.id, 'done'); f.evidence(a.id, 'reviewer', 'incorrect', ['--artifact', 'review.log']);
+  body = f.invoke(['show', a.id]).stdout; assert.match(body, /incorrect/); assert.match(body, /review.log/);
+  assert.deepEqual(f.call(['show', a.id]).task.dependents, [dependent.id]);
+  function submitSummaryError() { f.as(['submit', a.id, '--output', 'out', '--summary', 'cannot bypass'], 'worker', 'GATE_FAILED'); }
+});
+
+test('history contains every kind in ID order, full evidence, raw data, missing references and empty history', t => {
+  const f = fixture(t), a = f.add(), b = f.add();
+  f.as(['dep', 'add', a.id, b.id]); f.as(['dep', 'rm', a.id, b.id]); f.as(['claim', a.id]);
+  for (const kind of ['note', 'decision', 'issue']) f.as(['note', a.id, 'body\ncontinued', '--kind', kind]);
+  const issue = f.call(['show', a.id]).events.at(-1);
+  f.as(['note', a.id, 'resolved', '--resolve', String(issue.id)]); f.as(['next', a.id, 'next']); f.as(['next', a.id, '--clear']);
+  f.evidence(a.id, 'worker', 'unresolved', ['--missing', 'proof', '--artifact', 'log']); f.evidence(a.id); submitSummary(f, a.id, 'summary\ncontinued');
+  f.as(['reject', a.id, '--reason', 'fix'], 'reviewer'); resolveReject(f, a.id); submitSummary(f, a.id, 'again');
+  f.evidence(a.id, 'reviewer'); f.as(['accept', a.id], 'reviewer');
+  f.sql(db => {
+    const q = db.prepare('INSERT INTO events(task_id,kind,text,data,actor,at) VALUES(?,?,?,?,?,?)');
+    q.run(a.id, 'note', 'same time', '{}', 'fixture', '2000'); q.run(b.id, 'note', 'other task', '{}', 'fixture', '2000');
+    q.run(a.id, 'note', 'reverse time', '{}', 'fixture', '1900');
+    q.run(a.id, 'evidence', null, '{"evidence_id":99999}', 'fixture', '1800');
+  });
+  const before = snapshot(f), history = f.call(['history', a.id.toLowerCase()]), show = f.call(['show', a.id]);
+  assert.equal(history.task, a.id); assert.deepEqual(history.events, show.events); assert.deepEqual(history.evidence, show.evidence);
+  assert.deepEqual(history.events.map(e => e.id), history.events.map(e => e.id).sort((a, b) => a - b));
+  assert.ok(history.events.every(e => e.task === a.id));
+  for (const kind of ['created','dep_added','dep_removed','state','note','decision','issue','resolved','next','evidence']) assert.ok(history.events.some(e => e.kind === kind));
+  const body = f.invoke(['history', a.id]).stdout;
+  for (const value of ['— history', 'Data:', 'in_progress -> review / submit', 'Summary: summary\n  continued', 'criterion 1', 'round 0', 'unresolved', 'missing: proof', 'artifacts: log', '証拠なし: #99999']) assert.ok(body.includes(value), value);
+  assert.ok(body.indexOf('same time') < body.indexOf('reverse time'));
+  assert.deepEqual(snapshot(f), before);
+  // A schema-compatible task may have no events; create solely by INSERT.
+  f.sql(db => db.exec("INSERT INTO tasks SELECT 'AGT-99',99,title,role,goal,state,blocked_from,agent,pane,reviewer,plan,fix_rounds,max_fix_rounds,next_action,outputs,created_by,created_at,updated_at FROM tasks WHERE id='AGT-2'"));
+  assert.deepEqual(f.call(['history', 'AGT-99']).events, []); assert.match(f.invoke(['history', 'AGT-99']).stdout, /- なし/);
+});
+
+test('malformed latest submit never falls back or mutates raw historical data', t => {
+  const f = fixture(t), a = f.add(); f.as(['claim', a.id]); f.evidence(a.id); submitSummary(f, a.id, 'valid');
+  for (const data of [{}, { summary: 'x' }, { summary: 42, round: 0 }, { summary: ' ', round: 0 }, { summary: 'x', round: -1 }, { summary: 'x', round: '0' }, { summary: 'x', round: 0.5 }, { summary: null, round: 0 }]) {
+    const raw = { from: 'in_progress', to: 'review', command: 'submit', ...data };
+    f.sql(db => db.prepare("INSERT INTO events(task_id,kind,text,data,actor,at) VALUES(?,'state',NULL,?,'fixture','2000')").run(a.id, JSON.stringify(raw)));
+    const before = snapshot(f);
+    assert.equal(f.call(['show', a.id]).summary, null); assert.equal(f.call(['handoff', a.id]).tasks[0].summary, null);
+    assert.deepEqual(f.call(['history', a.id]).events.at(-1).data, raw);
+    assert.equal(f.invoke(['history', a.id]).status, 0); assert.deepEqual(snapshot(f), before);
+  }
+});
+
+test('history read-only interface errors/help and human empty fields', t => {
+  const f = fixture(t, false); f.call(['history', 'AGT-1'], 'NOT_INITIALIZED');
+  for (const args of [['history', '--help'], ['help', 'history']]) assert.match(f.call(args).help, /history <id>/);
+  f.call(['init']); const a = f.add();
+  f.call(['history', 'AGT-999'], 'NOT_FOUND'); f.call(['history'], 'USAGE'); f.call(['history', a.id, '--reverse'], 'USAGE');
+  const body = f.invoke(['show', a.id]).stdout;
+  for (const value of ['pane: -', '構成案: -', '### Files\n\n- なし', '### Outputs\n\n- なし', 'work: 未記録', 'review: 未記録']) assert.ok(body.includes(value), value);
+  assert.equal(f.invoke(['history', a.id]).stderr, '');
 });

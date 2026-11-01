@@ -58,9 +58,11 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 2. `agtask claim <ID> --as <NAME>` で取得する。`NOT_READY` / `ALREADY_ASSIGNED` なら作業せず親へ通知する。
 3. 作業中の決定は `note --kind decision`、未解決点は `note --kind issue`、次の一手は `next` で残す。
 4. 条件ごとに検証し、`evidence --criterion <n> --verdict verified --basis "<実行したコマンドと結果>"` を記録する。検証できない条件を `verified` にしない。
-5. `submit <ID> --output <成果物>` で提出し、herdr で親へ通知する。`GATE_FAILED` なら `details` の不足を埋める。
+5. `submit <ID> --output <成果物> --summary "<成果・変更・検証・残件>"` で提出し、herdr で親へ通知する。`GATE_FAILED` なら `details` の不足を埋める。
 6. reject 後は reject の issue を `note --resolve <event-id>` で解消し、全条件の証拠を記録し直してから再提出する。
 7. 自力で解決できなければ `block --reason` して判断待ちを通知する。断念するなら `fail --reason`。
+
+サマリーは任意だが、提出ごとに成果・変更ファイル・検証結果・残件を記す。複数行は `--summary -` で標準入力から渡せる。空本文はエラー、省略は未登録となる。差し戻し後は前回提出が表示され、再提出で置き換わる。省略して再提出した場合、以前の本文には戻らない。サマリーは受入判定ではなく、完了はレビュアーの `accept` で確定する。
 
 各コマンドに `--as <NAME>` を付ける。agtask の記録は herdr の完了通知の代わりにならない。
 
@@ -73,13 +75,14 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 
 ## 親の確認と再開
 
-- 通知を受けたら `agtask show <ID>` で証拠と成果物を確認し、差分も確認する。`done` にできるのはレビュアーの `accept` だけ。
+- 通知を受けたら `agtask show <ID>` で目的・担当ファイル・依存・成果物・直近の完了サマリー・現ラウンドの条件別証拠・決定・未解決点・次手を確認し、差分も確認する。サマリーには提出イベント、round、actor、日時が付き、差し戻し済みならその旨が出る。未提出や旧 CLI の提出は未登録となる。
+- 過去の提出本文、全ラウンドの証拠、通常 note、解消済み issue は `agtask history <ID>` で読む。記録順（イベント ID 昇順）で、時刻の逆行があっても順序は変わらない。`--json` では events と evidence を ID で対応付ける。show の JSON には直近 summary、handoff には各タスクと終了済み一覧の summary が含まれる。`done` にできるのはレビュアーの `accept` だけ。
 - 修正上限を超えたタスクは、状況と次案を人間に示す。`unblock --max-fix-rounds` での上限変更は構成の変更として再承認を得てから行う。
 - 担当を替えるときは `release --unassign` してから新しい子に claim させる。
 - 再開時は `agtask handoff` を読み、承認済みの版・構成と既存の pane を照合してから続ける。
 
 ## 禁止
 
-- `ls` / `ready` / `show` / `handoff` を完了待ちや状態確認の polling に使わない。ループ、定期実行、`watch` もしない。
+- `ls` / `ready` / `show` / `history` / `handoff` を完了待ちや状態確認の polling に使わない。ループ、定期実行、`watch` もしない。
 - 単発の参照は、計画時、通知の受信後、再開時、明示的な障害調査に限る。
 - sandbox の無効化や、承認されていない書込許可の追加で DB を開こうとしない。
