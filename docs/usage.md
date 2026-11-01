@@ -1,0 +1,54 @@
+---
+type: Playbook
+title: 利用手順
+description: 導入後の skill の利用、flake-parts への取り込み、開発時の検証。
+---
+
+# 利用手順
+
+初回は [Home Manager へのインストール](install.md) を行う。
+
+## flake-parts に取り込む
+
+既存の `mkFlake` のモジュールに追加する。
+
+```nix
+imports = [ dotfiles.flakeModules.agent-tools ];
+```
+
+`packages.<system>.node`、`devShells.<system>.agent-tools`、`homeManagerModules.agent-tools` を提供する。
+対応する systems は [flake.nix](../flake.nix) を参照。
+
+## skill を使う
+
+herdr 内で、選択するモデルの CLI と認証を用意して依頼する。
+
+```text
+$herdr-orchestrate この機能を実装したい。まず subagent の構成を提案して。
+```
+
+提案に `approve` / `reject`、または修正を指示する。
+共有設定は [defaults.toml](../skills/herdr-orchestrate/defaults.toml)。端末ごとの差分は `${XDG_CONFIG_HOME:-$HOME/.config}/agent-skills/herdr-orchestrate.toml` に置く。
+Home Manager の `xdg.configFile` から生成してもよい。設定の優先順と実行ルールは [SKILL.md](../skills/herdr-orchestrate/SKILL.md) を参照する。
+
+既定の `openai` preset は Codex CLI を使う。`claude` preset は Claude モデルを `cursor agent` 経由で使い、Claude Code のインストールは不要。
+`claude` を既定にする場合は端末固有の設定に `default_preset = "claude"` を指定する。
+モデル ID は `cursor agent --list-models` で確認し、必要なら `profiles.opus.model`、`profiles.sonnet.model`、`profiles.haiku.model` を上書きする。
+
+`opus-grok-astra` preset は、親・計画・調査に Opus、実装に Grok 4.7 Medium、レビューに Astra、定型 CLI 作業に Luna を使う。
+Opus と Grok は `cursor agent`、Astra と Luna は Codex CLI で動く。
+使う場合は依頼で preset 名を指定するか、端末固有の設定に `default_preset = "opus-grok-astra"` を指定する。
+親は Opus profile に合わせ、herdr 内で `cursor agent --model claude-opus-5-5-high` を起動してから依頼する。preset の指定だけでは起動中の親のモデルは変わらない。
+
+## Node・開発・検証
+
+clone 先で実行する。Node は [node.nix](../nix/agent-tools/node.nix) にバージョンとハッシュを固定した公式バイナリを使う。Node/V8 のソースコンパイルは行わない。
+
+```bash
+nix profile install path:.#node # Node だけを導入する場合
+nix develop path:.#agent-tools
+node --version
+nix flake check path:.
+```
+
+`path:.` は未追跡ファイルも含める指定。Node の更新は `node.nix` のバージョンと各プラットフォームの公式ハッシュを更新して行う。定期更新の方針と手順は [更新する](install.md#更新する) を参照する。

@@ -1,0 +1,68 @@
+# 共有する初期値。端末固有の差分は ~/.config/agent-skills/herdr-orchestrate.toml へ。
+default_preset = "openai"
+max_agents = 4 # 子の総数。役割の兼任可。全員の起動は不要。
+max_parallel = 3 # 同時に作業する子の上限。
+max_fix_rounds = 2
+
+[presets.openai]
+planning = "astra"
+research = "astra"
+review = "astra"
+implementation = "sol"
+cli = "luna"
+
+[presets.claude]
+planning = "opus"
+research = "opus"
+review = "opus"
+implementation = "sonnet"
+cli = "haiku"
+
+[presets.opus-grok-astra]
+orchestrator = "opus"
+planning = "opus"
+research = "opus"
+review = "astra"
+implementation = "grok"
+cli = "luna"
+
+[profiles.astra]
+kind = "codex"
+model = "gpt-6-astra"
+args = ["-c", 'model_reasoning_effort="high"']
+
+[profiles.sol]
+kind = "codex"
+model = "gpt-6.1-sol"
+args = ["-c", 'model_reasoning_effort="medium"']
+
+[profiles.luna]
+kind = "codex"
+model = "gpt-6-luna"
+args = ["-c", 'model_reasoning_effort="low"']
+
+# Claude モデルは Cursor 経由で使う。ID は cursor agent --list-models で確認する。
+# herdr 0.9.3 の kind=cursor は cursor-agent を起動するため command を指定する。
+[profiles.opus]
+kind = "cursor"
+command = ["cursor", "agent"]
+model = "claude-opus-5-5-high"
+args = []
+
+[profiles.sonnet]
+kind = "cursor"
+command = ["cursor", "agent"]
+model = "claude-sonnet-5-5-medium"
+args = []
+
+[profiles.haiku]
+kind = "cursor"
+command = ["cursor", "agent"]
+model = "claude-haiku-5-5-low"
+args = []
+
+[profiles.grok]
+kind = "cursor"
+command = ["cursor", "agent"]
+model = "grok-4.7-medium"
+args = []
