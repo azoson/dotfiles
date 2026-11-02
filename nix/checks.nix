@@ -22,7 +22,9 @@
           inputs.agent-skills.homeManagerModules.default
           self.homeManagerModules.agent-tools
           self.homeManagerModules.agent-skills
+          self.homeManagerModules.shell-tools
           {
+            programs.zsh.enable = true;
             home.username = "skill-test";
             home.homeDirectory = if pkgs.stdenv.hostPlatform.isDarwin then "/Users/skill-test" else "/home/skill-test";
             home.stateVersion = "26.05";
@@ -56,6 +58,7 @@
         agtask = config.packages.agtask.tests.acceptance;
         home-manager =
           assert home.config.home.file ? ".agents/skills";
+          assert pkgs.lib.hasInfix "atuin init zsh" home.config.programs.zsh.initContent;
           home.config.home.activationPackage;
       };
     };

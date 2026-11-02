@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-26.05";
     flake-parts = {
       url = "github:hercules-ci/flake-parts";
       inputs.nixpkgs-lib.follows = "nixpkgs";
@@ -27,8 +28,11 @@
 
       flake.flakeModules.agent-tools = agentTools;
       flake.lib.agtask.ignores = [ ".agtask/" ];
+      flake.homeManagerModules.shell-tools = import ./nix/shell-tools.nix {
+        stablePkgsFor = system: inputs.nixpkgs-stable.legacyPackages.${system};
+      };
       flake.homeManagerModules.default = { ... }: {
-        imports = with inputs.self.homeManagerModules; [ agent-tools agent-skills ];
+        imports = with inputs.self.homeManagerModules; [ agent-tools agent-skills shell-tools ];
       };
       # Defaults belong to this repository, not to the reusable module.
       perSystem = { config, ... }: {

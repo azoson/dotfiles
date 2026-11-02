@@ -1,7 +1,7 @@
 ---
 type: Playbook
 title: 利用手順
-description: 導入後の skill の利用、flake-parts への取り込み、開発時の検証。
+description: 導入後の skill の利用、flake-parts への取り込み、シェルツールの導入、開発時の検証。
 ---
 
 # 利用手順
@@ -18,6 +18,18 @@ imports = [ dotfiles.flakeModules.agent-tools ];
 
 `packages.<system>.node`、`packages.<system>.agtask`、`devShells.<system>.agent-tools`、`homeManagerModules.agent-tools`、`homeManagerModules.agent-skills` を提供する。
 対応する systems は [flake.nix](../flake.nix) を参照。
+
+## シェルツールを導入する
+
+`homeManagerModules.shell-tools` は starship・zoxide・atuin・fzf を Home Manager の `programs.*` で有効にする。flake module とは別に、Home Manager の `modules` に追加する。
+
+```nix
+modules = [ dotfiles.homeManagerModules.shell-tools ];
+```
+
+シェルへの組み込みは、利用側で Home Manager の `programs.zsh`・`programs.bash`・`programs.fish` を有効にしたシェルにだけ入る。Home Manager でシェルを管理しない端末では、各ツールの `init` を利用側のシェル設定で読み込む。
+既定値と atuin の設定は [shell-tools.nix](../nix/shell-tools.nix) を正とし、端末ごとの差分は利用側で上書きする。
+atuin だけは既定で、この flake の `nixpkgs-stable` input から取る。unstable では darwin のバイナリキャッシュが欠けて、ソースビルドになることがあるため。利用側の安定版 nixpkgs に揃える場合は `inputs.dotfiles.inputs.nixpkgs-stable.follows` を指定する。atuin の設定は `~/.config/atuin/config.toml` に生成されるため、既存のファイルがあれば内容を確認してから移動する。
 
 ## skill を使う
 
