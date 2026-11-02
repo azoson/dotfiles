@@ -19,7 +19,7 @@ herdr-orchestrate での使い方は [agtask 操作](../skills/herdr-orchestrate
 
 - `tools/agtask/agtask.mjs`: Node 24 の単一 ESM ファイル。`node:` 組み込みモジュールだけを使い、外部依存を持たない。DB は `node:sqlite` の `DatabaseSync`。
 - `tools/agtask/test/*.test.mjs`: 受け入れテスト。repo のルートで `node --test 'tools/agtask/test/*.test.mjs'` を実行する。
-- Nix: `packages.<system>.agtask` として、[node.nix](../nix/agent-tools/node.nix) の Node で `agtask.mjs` を実行するラッパーを提供する。Home Manager モジュールの `home.packages` と `devShells.<system>.agent-tools` に加え、`nix flake check` でテストを実行する。テストには `git` が要る。
+- Nix: `packages.<system>.agtask` として、[node.nix](../nix/agent-tools/node.nix) の Node で `agtask.mjs` を実行するラッパーを提供する。Home Manager モジュール `homeManagerModules.agent-tools` の `home.packages` と `devShells.<system>.agent-tools` に加え、`nix flake check` でテストを実行する。テストには `git` が要る。
 - バージョンは `0.1.0`、DB スキーマは `1`。
 
 ## 保存先

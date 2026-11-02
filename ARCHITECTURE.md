@@ -13,7 +13,7 @@ sources:
 ## 構成
 
 - [flake.nix](flake.nix): 依存の宣言、部品の公開、この repo 単体での開発・検証の入口。
-- [nix/agent-tools/](nix/agent-tools/): 再利用する flake-parts モジュール。Node と Home Manager による skill 配置を提供する。
+- [nix/agent-tools/](nix/agent-tools/): 再利用する flake-parts モジュール。Node・agtask と、それらを導入する Home Manager モジュール、agent-skills-nix に skill を登録する Home Manager モジュールを提供する。
 - [nix/checks.nix](nix/checks.nix): モジュールの合成、Home Manager、Node の検証。
 - [skills/](skills/): エージェントへの指示と共有設定。
 - [tools/](tools/): skill が使う CLI の実装。agtask の仕様は [docs/agtask.md](docs/agtask.md)。

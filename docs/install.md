@@ -34,24 +34,43 @@ inputs.dotfiles.url = "path:/absolute/path/to/dotfiles";
 次の `user@host` と `x86_64-linux` は既存設定の名前・system に合わせ、`home.nix` も既存のものを使う。
 
 ```nix
-outputs = { nixpkgs, home-manager, dotfiles, ... }: {
+outputs = { nixpkgs, home-manager, agent-skills, dotfiles, ... }: {
   homeConfigurations."user@host" = home-manager.lib.homeManagerConfiguration {
     pkgs = nixpkgs.legacyPackages.x86_64-linux;
     modules = [
       ./home.nix
+      agent-skills.homeManagerModules.default
       dotfiles.homeManagerModules.agent-tools
+      dotfiles.homeManagerModules.agent-skills
     ];
   };
 };
 ```
 
-この導入経路では `homeManagerModules.agent-tools` を直接使う。
+- `homeManagerModules.agent-tools`: Node と [agtask](agtask.md) を `home.packages` に追加する。
+- `homeManagerModules.agent-skills`: [agent-skills-nix](https://github.com/Kyure-A/agent-skills-nix) の `programs.agent-skills` に skill を登録する。agent-skills-nix のモジュールは import しない。
+
+agent-skills-nix の input とモジュールの import は利用側で行う。モジュールは重複排除されないため、一つの構成で一度だけ import する。
+dotfiles の input は `inputs.dotfiles.inputs.agent-skills.follows = "agent-skills";` などで利用側の input に揃える。
 対応する systems は [flake.nix](../flake.nix) を参照。
 
-Claude Code にも配置する場合は、`home.nix` に追加する。
+配置先も利用側で決める。`home.nix` に追加する例:
 
 ```nix
-programs.agent-skills.targets.claude.enable = true;
+programs.agent-skills = {
+  enable = true;
+  targets.agents = {
+    enable = true;
+    dest = ".agents/skills";
+    structure = "link";
+  };
+  # Claude Code にも配置する場合
+  targets.claude = {
+    enable = true;
+    dest = ".claude/skills";
+    structure = "link";
+  };
+};
 ```
 
 ## 3. ビルドして適用する
@@ -64,9 +83,9 @@ home-manager build --flake '.#user@host'
 home-manager switch --flake '.#user@host'
 ```
 
-Node、[agtask](agtask.md)、`~/.agents/skills/herdr-orchestrate/` が配置される。Claude Code を有効にした場合は `~/.claude/skills/` にも配置される。
+Node、[agtask](agtask.md)、有効にした targets の `herdr-orchestrate/` が配置される。
 Node は [node.nix](../nix/agent-tools/node.nix) で指定した公式バイナリを SHA-256 検証付きで取得し、Nix store に配置する。Linux では Nix のライブラリを参照するよう調整する。Node/V8 のソースコンパイルは行わず、`/tmp` のファイルにも依存しない。
-既存ファイルとの衝突は上書きせず報告する。手動配置から移行する場合は、衝突したリンク先・内容を確認してから移動または削除する。
+agent-skills-nix の `link` 配置は `home.file` の `force` を有効にするため、同名の既存ファイルを上書きする。手動配置や `codex skills sync` から移行する場合は、同名の skill の内容を確認してから移動または削除する。
 
 ```bash
 node --version

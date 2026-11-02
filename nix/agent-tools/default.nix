@@ -13,10 +13,11 @@ in
     description = "Reusable Home Manager modules.";
   };
 
-  config.flake.homeManagerModules.agent-tools = import ./home-manager.nix {
-    inherit skillSource;
-    agentSkillsModule = inputs.agent-skills.homeManagerModules.default;
-    packagesFor = system: withSystem system ({ config, ... }: [ config.packages.node config.packages.agtask ]);
+  config.flake.homeManagerModules = {
+    agent-tools = import ./home-manager.nix {
+      packagesFor = system: withSystem system ({ config, ... }: [ config.packages.node config.packages.agtask ]);
+    };
+    agent-skills = import ./agent-skills.nix { inherit skillSource; };
   };
 
   config.perSystem = { pkgs, ... }:

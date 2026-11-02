@@ -16,7 +16,7 @@ description: 導入後の skill の利用、flake-parts への取り込み、開
 imports = [ dotfiles.flakeModules.agent-tools ];
 ```
 
-`packages.<system>.node`、`devShells.<system>.agent-tools`、`homeManagerModules.agent-tools` を提供する。
+`packages.<system>.node`、`packages.<system>.agtask`、`devShells.<system>.agent-tools`、`homeManagerModules.agent-tools`、`homeManagerModules.agent-skills` を提供する。
 対応する systems は [flake.nix](../flake.nix) を参照。
 
 ## skill を使う

@@ -28,7 +28,7 @@
       flake.flakeModules.agent-tools = agentTools;
       flake.lib.agtask.ignores = [ ".agtask/" ];
       flake.homeManagerModules.default = { ... }: {
-        imports = [ inputs.self.homeManagerModules.agent-tools ];
+        imports = with inputs.self.homeManagerModules; [ agent-tools agent-skills ];
       };
       # Defaults belong to this repository, not to the reusable module.
       perSystem = { config, ... }: {
