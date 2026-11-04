@@ -66,6 +66,7 @@ herdr agent get "$PANE_ID"
 起動確認は単発で行い、検出した種別が profile の `kind` と一致し、`idle` / `done` になったことを確認する。
 未検出・未準備・`blocked` なら仕事を投入せず状況を報告し、再起動や polling をしない。
 準備できたら `herdr agent rename "$PANE_ID" "$NAME"` で承認済みの名前を付け、以降は通常の agent 操作を使う。
+名前は計画に使った名前（agtask の担当名）と一致させる。既に名前がない pane を使う場合は、rename してから投入する。
 
 ## 投入・完了通知
 
@@ -82,6 +83,7 @@ herdr agent prompt "$ORCHESTRATOR_PANE_ID" "$MESSAGE"
 ```
 
 `ORCHESTRATOR_PANE_ID` は親から渡された値。`MESSAGE` にタスク ID、子の名前、結果と検証の要約を含める。
+一時ファイルは親が指定した作業領域に置き、`/tmp` を使わない。
 子は自分の最終回答だけで済ませず、親への送信を行う。TUI の通知表示だけでは親へのメッセージにならない。
 双方とも `--wait` を付けない。親への通知は新しい仕事の委譲ではなく、親が作業中でも送る。
 

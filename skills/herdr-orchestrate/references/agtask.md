@@ -49,6 +49,8 @@ agtask graph --format text
 - `--write` / `--read` は構成案の担当範囲と一致させる。`--max-fix-rounds` は解決済みの設定値を渡す。
 - `--reviewer` は実装と別のエージェントにする。レビューは対象タスクの `review` 状態で行い、別タスクにしない。
 - `graph` を構成案の実行順と照合してから子を起動する。
+- 形式チェックのある repo（例: Haskell の ormolu、整形ツール）では、format・lint の成功を受け入れ条件に含める。
+- 計画から外すタスクは `agtask cancel <ID> --as "$PARENT" --reason "<理由>"` で理由を残す。
 
 ## 子への指示
 
@@ -57,7 +59,7 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 1. `agtask show <ID> --json` で目的・条件・担当ファイルを読む。失敗したら作業せず、判断待ちとして親へ通知する。
 2. `agtask claim <ID> --as <NAME>` で取得する。`NOT_READY` / `ALREADY_ASSIGNED` なら作業せず親へ通知する。
 3. 作業中の決定は `note --kind decision`、未解決点は `note --kind issue`、次の一手は `next` で残す。
-4. 条件ごとに検証し、`evidence --criterion <n> --verdict verified --basis "<実行したコマンドと結果>"` を記録する。検証できない条件を `verified` にしない。
+4. 条件ごとに検証し、`evidence --criterion <n> --verdict verified --basis "<実行したコマンドと結果>"` を記録する。検証できない条件を `verified` にしない。提出前に、完了条件に含まれる format・lint・build を実行してから記録する。
 5. `submit <ID> --output <成果物> --summary "<成果・変更・検証・残件>"` で提出し、herdr で親へ通知する。`GATE_FAILED` なら `details` の不足を埋める。
 6. reject 後は reject の issue を `note --resolve <event-id>` で解消し、全条件の証拠を記録し直してから再提出する。
 7. 自力で解決できなければ `block --reason` して判断待ちを通知する。断念するなら `fail --reason`。
@@ -79,6 +81,7 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 - 過去の提出本文、全ラウンドの証拠、通常 note、解消済み issue は `agtask history <ID>` で読む。記録順（イベント ID 昇順）で、時刻の逆行があっても順序は変わらない。`--json` では events と evidence を ID で対応付ける。show の JSON には直近 summary、handoff には各タスクと終了済み一覧の summary が含まれる。`done` にできるのはレビュアーの `accept` だけ。
 - 修正上限を超えたタスクは、状況と次案を人間に示す。`unblock --max-fix-rounds` での上限変更は構成の変更として再承認を得てから行う。
 - 担当を替えるときは `release --unassign` してから新しい子に claim させる。
+- 子が `in_progress` の間は、親が `unblock`・`release`・`cancel` などで状態を変えない。`blocked` の通知を受けてから `unblock` する。`unblock` が失敗したら、先に `agtask show` で現在の状態を確認し、子へ状態を問い合わせる。
 - 再開時は `agtask handoff` を読み、承認済みの版・構成と既存の pane を照合してから続ける。
 
 ## 禁止
