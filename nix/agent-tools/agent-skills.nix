@@ -5,6 +5,9 @@
 {
   programs.agent-skills = {
     sources.dotfiles.path = skillSource;
-    skills.enable = [ "herdr-orchestrate" ];
+    skills.enable = [
+      "herdr-orchestrate"
+      "herdr-pane-review"
+    ];
   };
 }
