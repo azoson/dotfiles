@@ -73,6 +73,12 @@ herdr agent get "$PANE_ID"
 親は自身の pane ID を `herdr pane current --current` で確認し、タスク ID とともに子のプロンプトへ渡す。
 子自身の `HERDR_PANE_ID` を親の通知先にしない。
 
+親の pane にも名前を付け、ID だけで参照される pane を残さない。名前は agtask の `--as` と揃える。
+
+```bash
+herdr agent rename "$HERDR_PANE_ID" "$PARENT"   # 例: PARENT=orchestrator
+```
+
 ```bash
 # 親: 仕事を投入して戻る。PROMPT に通知先・タスク ID・通知指示を含める。
 herdr agent prompt "$NAME" "$PROMPT"

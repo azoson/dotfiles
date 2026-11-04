@@ -72,8 +72,10 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 
 1. `agtask show <ID> --json` で条件、成果物、担当の自己検証を読む。自己検証を根拠に流用せず、自分で確認する。
 2. 条件ごとに `evidence --verdict verified|incorrect|unresolved --basis "<根拠>"` を記録する。`unresolved` は `--missing` に不足証拠を書く。
-3. 全条件が `verified` なら `accept`、そうでなければ `reject --reason "<差し戻す理由>"`。条件外の問題（担当外のファイル変更など）も reject の理由にできる。
-4. 結果を herdr で親へ通知する。reject の返り値が `fix_limit_exceeded: true` ならタスクは `blocked` になっている。その旨も通知に含める。
+3. 担当の decision note に分岐やフォールバック（例: 一致しない入力はそのまま出す）があれば、それぞれの経路を通るテストがあるかを確かめる。ない経路があれば、その条件を `unresolved` にする。
+4. `agtask history <ID>` で、未解決の issue と `next` を確かめる。残っていれば reject し、理由に issue のイベント ID を書く。担当は、対応するか、不要になった理由を書いて `note --resolve <event-id>` で解消してから再提出する。
+5. 全条件が `verified` なら `accept`、そうでなければ `reject --reason "<差し戻す理由>"`。条件外の問題（担当外のファイル変更など）も reject の理由にできる。
+6. 結果を herdr で親へ通知する。reject の返り値が `fix_limit_exceeded: true` ならタスクは `blocked` になっている。その旨も通知に含める。
 
 ## 親の確認と再開
 
