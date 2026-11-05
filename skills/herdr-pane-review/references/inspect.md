@@ -18,9 +18,12 @@ herdr workspace list
 
 tab は `label`・`number`・`tab_id` で区別する。ユーザーが言う「tab-N」が、ラベルか番号かを確認する。
 
+herdr-orchestrate は子を親の tab のほか、子用の `orch-*` tab や worktree の workspace に置くことがある。
+`workspace list` の各 workspace に `worktree` の記録があれば、親 repo の workspace と同じグループとして対象に含める。
+
 ## 2. pane と agent の列挙
 
-`herdr pane list` と `herdr agent list` の JSON を、tab ID で絞り込む。
+`herdr pane list` と `herdr agent list` の JSON を、対象の tab ID で絞り込む。worktree の workspace も対象なら、`workspace_id` で絞り込んだ結果を合わせる。
 
 ```bash
 TAB_ID=w1:t1C   # tab list で確認した tab_id
@@ -66,6 +69,7 @@ agtask history <ID> --json
 | 計画との差 | 計画にあるタスクが、途中で cancel されていないか。理由が残っているか | 検証のタスクが cancel され、レビュアーが代わりに行った |
 | 状態の競合 | 親と子が同じタスクの状態を同時に変えていないか | 子が `in_progress` の間の `unblock` が失敗した |
 | 作業ディレクトリ | 複数の子が同じ作業ツリーを使い、衝突の危険がないか | 比較のための作業ツリーを手作業で作って消した |
+| 配置 | 構成案の配置（same-tab・orch-tab・worktree）と実際の tab・workspace が一致するか。読めないほど狭い pane や、閉じ忘れた tab・worktree がないか | 子 4 体を親の tab に右分割し続け、出力が折り返しで読めなかった |
 | 一時ファイル | 子が `/tmp` などの共有領域に書いていないか | 比較用のファイルが `/tmp` に残った |
 | pane 名 | 名前で参照できるか。計画の名前と一致するか | 親と計画の pane に名前がなく、ID でしか参照できない |
 | 環境依存の失敗 | 既知の失敗と、今回の変更による失敗を区別できるか | 失敗件数の基準がなく、比較のたびに手作業で調べた |

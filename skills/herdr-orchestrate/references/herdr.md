@@ -5,12 +5,18 @@ description: 承認済みの subagent を herdr で起動し、子から親へ�
 sources:
   - id: herdr
     resource: https://herdr.dev/tui/docs/agent-skill/
+  - id: concepts
+    resource: https://herdr.dev/tui/docs/concepts/
+  - id: automation
+    resource: https://herdr.dev/tui/docs/agent-automation/
+  - id: cli
+    resource: https://herdr.dev/tui/docs/cli-reference/
 ---
 
 # herdr 操作
 
 インストール済みの `herdr --skill` と各コマンドの `--help` を正とする。
-以下は 0.9.3 で構文確認済み。新しい版では実機の help を確認する。
+以下は 0.9.3 で構文確認済み。`tab`・`worktree` は 0.9.5 で確認。新しい版では実機の help を確認する。
 
 ## 実行前
 
@@ -25,17 +31,64 @@ herdr --skill
 モデルは各 CLI の一覧・設定で確認し、承認後の起動時にも選択結果を確認する。
 利用可否が事前確認できない場合は、その旨を構成案に記載する。
 
+## 配置（session / workspace / tab / pane）
+
+公式の Concepts と Agent automation に沿って、階層ごとの役割を次のように使い分ける。[^concepts][^automation]
+
+| 階層 | 公式の位置付け | この skill での使い方 |
+| --- | --- | --- |
+| session | 独立した server の名前空間。pane・socket・保存状態が別になる | 使わない。子は親と同じ session に置く。ID と agent 名は server ごとなので、別 session の子からは親へ通知できない |
+| workspace | repo・タスク・調査ごとの最上位の入れ物。サイドバーで中の agent の状態を集約する | 原則として親の workspace を使う。新しい workspace は worktree を使う場合だけ作る |
+| worktree | Git checkout を持つ workspace。親 repo の workspace とグループになる | 書込担当の子に独立した checkout が要るときに使う。子を置く checkout は `git worktree add` ではなく `herdr worktree create` で作る。agent を置かない検証用の一時 checkout は対象外 |
+| tab | workspace 内のレイアウト。`agents`・`logs`・`server`・`review` などのビューを分ける | 子が 3 体以上か、親の tab で人間が作業しているときは、子用の tab を 1 つ作る。サーバーや watch は agent と別の tab に置く |
+| pane | 実際の端末。agent はその中で認識されたプロセス | 子 1 体に pane 1 つ。agent への投入と通知は pane（agent 名）宛てに送る |
+
+- agent 同士の協働を pane 単位で行うのは公式の設計どおり。`agent start` は既存の pane を使い、レイアウトは作らない。
+- `agent prompt` は同じ server の中なら名前か pane ID で届く。tab や workspace が違っても通知経路は変わらない。
+- 公式 skill の既定は「現在の tab の隣の pane、同じ cwd」。tab・workspace・worktree・別の cwd は、人間が求めた場合だけ作る。この skill では、構成案の「配置」列への approve を人間の指示として扱う。承認されていない配置は作らない。
+
+配置は次の順で決め、構成案の「配置」列に書く。
+
+1. **same-tab**: 子が 1〜2 体で、親の tab に余裕がある。公式の既定。
+2. **orch-tab**: 子が 3 体以上か、親の tab が狭い。ラベル `orch-<topic>` の tab を親の workspace に 1 つ作り、子をまとめる。親は自分の pane に残る。
+3. **worktree**: 書込担当の子どうしで、同じファイルや同じビルド成果物を触る恐れがある。または、ブランチを分けて統合したい。ブランチ名・基点・統合方法を書く。
+4. **logs-tab**: テストの watch・dev server・ログ追跡など、agent ではない長時間プロセス。ラベル `logs` などの tab に置き、pane コマンドで扱う。
+
+- 1 つの tab で同じ向きの split を繰り返さない。列や行が狭くなり、agent の出力を読めなくなる。[^herdr]
+- worktree の子は cwd が別 checkout になる。agtask を使う場合は [agtask.md](agtask.md) の書込範囲外の扱いになるので、権限差分も構成案に書く。
+- 1 つの依頼で作る tab は orch-tab と logs-tab をそれぞれ最大 1 つにする。子ごとに tab や workspace を作らない。
+
 ## 起動（構成承認後）
 
 ```bash
 herdr pane current --current
 herdr pane layout --pane "$HERDR_PANE_ID"
 herdr agent list
-herdr pane split --current --direction right --cwd "$PWD" --no-focus
+herdr tab list --workspace "$HERDR_WORKSPACE_ID"
 ```
 
-縦長・狭い pane なら `down`。既定は同じ cwd の隣接 pane。
-返却 JSON の `.result.pane.pane_id` を使う。ID を推測しない。
+承認済みの配置に応じて、子の pane を用意する。どの場合も返却 JSON の ID を使い、推測しない。
+
+```bash
+# same-tab: 親の隣に分割する。縦長・狭い pane なら down。
+herdr pane split --current --direction right --cwd "$PWD" --no-focus
+# → .result.pane.pane_id
+
+# orch-tab: 子用の tab を作る。root pane を最初の子に使い、2 体目以降はその tab 内で split する。
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "orch-$TOPIC" --no-focus
+# → .result.tab.tab_id, .result.root_pane.pane_id
+herdr pane layout --pane "$ROOT_PANE_ID"
+herdr pane split "$ROOT_PANE_ID" --direction right --cwd "$PWD" --no-focus
+
+# worktree: checkout と workspace を同時に作る。root pane の cwd は新しい checkout。
+herdr worktree create --workspace "$HERDR_WORKSPACE_ID" --branch "$BRANCH" --base "$BASE" --label "$NAME" --no-focus
+# → .result.workspace.workspace_id, .result.root_pane.pane_id, .result.worktree
+```
+
+- 作った tab・worktree の ID・ラベル・ブランチを記録する。片付けの対象はこの記録で決める。
+- `--trust-repository` は付けない。worktree の作成が失敗したら、付け直して再実行せず人間に報告する。
+- 人間の焦点を奪わないように `--no-focus` を付ける。
+
 既存エージェントと重ならない名前を付け、名前と pane ID を記録する。
 
 ```bash
@@ -103,6 +156,23 @@ herdr agent prompt "$ORCHESTRATOR_PANE_ID" "$MESSAGE"
 通知先が `blocked` なら承認 UI に勝手に回答しない。子は結果を保持し、通知不能を人間に報告する。再送の polling に切り替えない。
 他人の pane は閉じない。サーバーの停止・更新を復旧手段にしない。
 
+## 片付け
+
+閉じてよいのは、親が作ったと記録した pane・tab・worktree だけ。成果の確認と統合が終わり、最終報告にまとめた後に行う。
+
+```bash
+herdr pane close "$PANE_ID"          # same-tab の子
+herdr tab close "$ORCH_TAB_ID"       # orch-tab・logs-tab。中の pane も閉じる
+herdr worktree remove --workspace "$WORKTREE_WORKSPACE_ID"
+```
+
+- `worktree remove` は `git worktree remove` を実行する。ブランチは消さない。統合前の worktree は消さない。
+- 未コミットの変更が残っていて remove が失敗したら、`--force` を付けず人間に報告する。
+- 親の workspace を `workspace close --group` で閉じない。
+- 人間が残すよう求めた場合や、未完了の子がいる場合は閉じず、残した ID を最終報告に書く。
+
 操作の参考は公式 agent skill。[^herdr]
 
 [^herdr]: [公式 agent skill](https://herdr.dev/tui/docs/agent-skill/)
+[^concepts]: [Concepts](https://herdr.dev/tui/docs/concepts/)
+[^automation]: [Agent automation](https://herdr.dev/tui/docs/agent-automation/)
