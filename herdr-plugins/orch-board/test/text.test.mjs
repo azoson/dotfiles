@@ -37,3 +37,10 @@ test('wide emoji measure 2 columns', () => {
   assert.equal(strWidth('a✅b'), 4);
   assert.equal(strWidth('✓'), 1);
 });
+
+test('graph glyphs are single-width and not emoji', () => {
+  for (const g of ['○', '◎', '◐', '●', '■', '✓', '✗', '×', '⇠', '▸', '◂', '├', '└', '│', '─', '»']) {
+    assert.equal(strWidth(g), 1, g);
+    assert.equal(/\p{Emoji}/u.test(g), false, `${g} is emoji-capable`);
+  }
+});

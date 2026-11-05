@@ -13,7 +13,7 @@ let
 in
 pkgs.stdenvNoCC.mkDerivation {
   pname = "orch-board";
-  version = "0.1.0";
+  version = "0.2.0";
   inherit src;
   dontBuild = true;
   installPhase = ''

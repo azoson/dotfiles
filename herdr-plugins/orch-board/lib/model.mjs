@@ -97,6 +97,7 @@ export function buildModel({ snapshot, agtask, scopeWorkspaceId, repoCwd, showAl
     return {
       key: `task:${t.id}`,
       id: t.id,
+      createdBy: t.created_by ?? null,
       title: t.title ?? '',
       role: t.role ?? null,
       state: t.state,
@@ -117,6 +118,32 @@ export function buildModel({ snapshot, agtask, scopeWorkspaceId, repoCwd, showAl
       attention,
     };
   });
+
+  // People: every name tied to a task, resolved to a live agent (names first, then a claimed pane).
+  const people = [...tiedNames].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).map((name) => {
+    const r = resolve(name, null);
+    if (r.agent) return { name, live: ref(r.agent), ambiguous: false, via: 'name', _agent: r.agent };
+    if (r.ambiguous) return { name, live: null, ambiguous: true, via: null };
+    // Claimed panes: live work first (newest first), finished tasks last.
+    const claimed = allTasks.filter((t) => t.agent === name && t.pane).sort((a, b) => {
+      const ta = isTerminal(a.state) ? 1 : 0;
+      const tb = isTerminal(b.state) ? 1 : 0;
+      if (ta !== tb) return ta - tb;
+      const ua = a.updated_at ?? '';
+      const ub = b.updated_at ?? '';
+      if (ua !== ub && ua && ub) return ua < ub ? 1 : -1;
+      return taskSeq(b.id) - taskSeq(a.id);
+    });
+    for (const t of claimed) {
+      const p = resolve(null, t.pane);
+      if (p.agent) return { name, live: ref(p.agent), ambiguous: false, via: 'pane', _agent: p.agent };
+    }
+    return { name, live: null, ambiguous: false, via: null };
+  });
+  for (const p of people) {
+    // Tied panes only: people must not seed the scope (names may be reused in other repos).
+    if (p._agent) { tiedPanes.add(p._agent.pane_id); delete p._agent; }
+  }
 
   // Repo.
   const db = agtask?.db ?? null;
@@ -191,6 +218,8 @@ export function buildModel({ snapshot, agtask, scopeWorkspaceId, repoCwd, showAl
     counts,
     parents,
     tasks: taskRows,
+    allTasks: [...rows].sort((a, b) => taskSeq(a.id) - taskSeq(b.id)),
+    people,
     hiddenTerminal,
     untracked,
     layout: { orchTabs, worktrees },

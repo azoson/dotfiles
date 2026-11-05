@@ -59,14 +59,26 @@ herdr plugin link ~/dotfiles/herdr-plugins/orch-board   # 作業ツリーを直�
 | キー | 動作 |
 | --- | --- |
 | `j` / `k`、`↓` / `↑` | 選択を動かす |
+| `Tab` / `Shift-Tab`、`v` | 表示を切り替える（table → team → deps） |
 | `g` / `G` | 先頭・末尾 |
-| `Enter` | 選択した agent の pane にフォーカスして閉じる |
+| `Enter` | 選択した agent の pane にフォーカスして閉じる。agent が動いていなければ理由を下に出す |
 | `r` | 再取得 |
 | `a` | 完了済みタスクの表示を切り替える |
 | `q`、`Esc`、`Ctrl-C` | 閉じる |
 
+## 表示
+
+ヘッダーの `[table]` などが今の表示。`a`（完了済みの表示）はどの表示にも効く。
+
+- table: タスクの一覧。起動時はこれ。
+- team: タスクを作った agent（親）を根にして、担当の agent を下に並べる。各 agent の役割、herdr の種類と状態、pane、担当タスク（ID と状態の記号）を出す。`◂── reviews ── X` は、X がその agent のタスクをレビューすること。レビュー専任の agent は `reviewing`（レビュー中）と `reviews` にタスクを出す。`(unassigned)` は担当のいないタスク。
+- deps: タスクの依存関係。依存先が 1 つならその下に置き、0 個か 2 個以上なら最上位に置く。木の親以外の依存先は `⇠` の後に並べ、未完了の依存があれば `(waiting)` を付ける。非表示の完了済みタスクは記号付き、存在しない ID は `?` 付きで出す。
+
+状態の記号: `○` todo、`◎` ready、`◐` in_progress、`●` review、`■` blocked、`✓` done、`✗` failed、`×` cancelled。
+
 ## 表示の読み方
 
+- team・deps の `gone` は、その名前の agent が herdr にいないこと。`ambiguous` は同じ名前の agent が複数いること。
 - 行頭の `!` は要注意。blocked、agent が見つからない in_progress・review、名前の重複。
 - `AGENT` の `r:` は、review 中なのでレビュアーを表示していることを示す。
 - `PANE` の `~` は、名前ではなくタスクの記録した pane で結び付けたことを示す。

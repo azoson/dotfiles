@@ -2,10 +2,12 @@
 import { parseContext, resolveRepoCwd, resolveScopeWorkspaceId } from './context.mjs';
 import { request, socketPath, subscribe, subscriptionList } from './herdr.mjs';
 import { parseKeys } from './keys.mjs';
+import { buildDepGraph, buildTeamGraph } from './graph.mjs';
 import { buildModel } from './model.mjs';
-import { moveSelection, render, selectableKeys } from './render.mjs';
+import { moveSelection, render } from './render.mjs';
 import { createDebouncer, createSerialRunner } from './schedule.mjs';
 import { DEFAULT_AGTASK, discoverDb, listTasks } from './tasks.mjs';
+import { resolveTarget, selectableKeys, switchView } from './views.mjs';
 import { watchDb } from './watch.mjs';
 
 const FALLBACK_MS = 10_000;
@@ -26,8 +28,9 @@ function createState({ argv, env, homedir }) {
     agtask: { status: 'error', code: 'LOADING', message: 'loading' },
     lastGood: null,
     showAll: false,
-    selectedKey: null,
-    scrollTop: 0,
+    view: 'table',
+    selection: { table: null, team: null, deps: null },
+    scroll: { table: 0, team: 0, deps: 0 },
     statusMessage: null,
     events: 'connecting',
     dbWatch: 'none',
@@ -93,7 +96,9 @@ export async function dump({ argv, env, homedir }) {
   const state = createState({ argv, env, homedir });
   await fetchSnapshot(state);
   await initRepo(state);
-  process.stdout.write(`${JSON.stringify({ model: modelOf(state), herdrError: state.herdrError }, null, 2)}\n`);
+  const model = modelOf(state);
+  const graphs = model.tracking ? { team: buildTeamGraph(model), deps: buildDepGraph(model) } : null;
+  process.stdout.write(`${JSON.stringify({ model, graphs, herdrError: state.herdrError }, null, 2)}\n`);
 }
 
 export async function runBoard({ argv, env, stdin, stdout, homedir, onCleanup }) {
@@ -119,11 +124,11 @@ export async function runBoard({ argv, env, stdin, stdout, homedir, onCleanup })
       model = modelOf(state);
       const f = render(
         model,
-        { selectedKey: state.selectedKey, scrollTop: state.scrollTop, statusMessage: state.statusMessage, events: state.events, dbWatch: state.dbWatch, lastRefresh: state.lastRefresh, herdrError: state.herdrError },
+        { view: state.view, selectedKey: state.selection[state.view], scrollTop: state.scroll[state.view], statusMessage: state.statusMessage, events: state.events, dbWatch: state.dbWatch, lastRefresh: state.lastRefresh, herdrError: state.herdrError },
         { cols: stdout.columns || 80, rows: stdout.rows || 24, color, now: new Date(), home: homedir },
       );
-      state.selectedKey = f.selectedKey;
-      state.scrollTop = f.scrollTop;
+      state.selection[state.view] = f.selectedKey;
+      state.scroll[state.view] = f.scrollTop;
       stdout.write(`\x1b[H${f.text.split('\n').join('\x1b[K\r\n')}\x1b[K\x1b[J`);
     });
   };
@@ -228,16 +233,11 @@ export async function runBoard({ argv, env, stdin, stdout, homedir, onCleanup })
   const quit = () => { cleanup(); process.exit(0); };
 
   async function activate() {
-    const key = state.selectedKey;
-    const row = model?.tasks.find((t) => t.key === key);
-    const ag = model?.untracked.find((a) => a.key === key);
-    const target = row ? row.live?.paneId : ag?.paneId;
-    if (!target) {
-      if (row) setStatus(`no live agent for ${row.id}`);
-      return;
-    }
+    const r = model ? resolveTarget(model, state.view, state.selection[state.view]) : null;
+    if (!r) return;
+    if (r.why) { setStatus(r.why); return; }
     try {
-      await request(state.sock, 'agent.focus', { target });
+      await request(state.sock, 'agent.focus', { target: r.paneId });
       quit();
     } catch (err) {
       setStatus(`focus failed: ${err.code ?? err.message}`);
@@ -267,10 +267,12 @@ export async function runBoard({ argv, env, stdin, stdout, homedir, onCleanup })
   stdin.on('data', (chunk) => {
     for (const k of parseKeys(chunk)) {
       if (k === 'quit' || k === 'esc') return quit();
-      const keys = model ? selectableKeys(model) : [];
-      if (k === 'up') state.selectedKey = moveSelection(keys, state.selectedKey, -1);
-      else if (k === 'down') state.selectedKey = moveSelection(keys, state.selectedKey, 1);
-      else if (k === 'top' || k === 'bottom') state.selectedKey = moveSelection(keys, state.selectedKey, k);
+      const keys = model ? selectableKeys(model, state.view) : [];
+      const cur = state.selection[state.view];
+      if (k === 'up') state.selection[state.view] = moveSelection(keys, cur, -1);
+      else if (k === 'down') state.selection[state.view] = moveSelection(keys, cur, 1);
+      else if (k === 'top' || k === 'bottom') state.selection[state.view] = moveSelection(keys, cur, k);
+      else if (k === 'next_view' || k === 'prev_view') Object.assign(state, switchView(state, model, k === 'next_view' ? 1 : -1));
       else if (k === 'toggle_all') state.showAll = !state.showAll;
       else if (k === 'refresh') hardRefresh().catch(onError);
       else if (k === 'enter') activate().catch(onError);

@@ -1,5 +1,5 @@
 // Pure: raw stdin chunk -> key names.
-const SIMPLE = { q: 'quit', '\x03': 'quit', j: 'down', k: 'up', '\r': 'enter', '\n': 'enter', r: 'refresh', a: 'toggle_all', g: 'top', G: 'bottom' };
+const SIMPLE = { '\t': 'next_view', v: 'next_view', q: 'quit', '\x03': 'quit', j: 'down', k: 'up', '\r': 'enter', '\n': 'enter', r: 'refresh', a: 'toggle_all', g: 'top', G: 'bottom' };
 
 export function parseKeys(chunk) {
   const s = String(chunk);
@@ -15,6 +15,7 @@ export function parseKeys(chunk) {
         const seq = s.slice(i, j + 1);
         if (seq === '\x1b[A') out.push('up');
         else if (seq === '\x1b[B') out.push('down');
+        else if (seq === '\x1b[Z') out.push('prev_view');
         i = j + 1;
       } else if (s[i + 1] === 'O') {
         const f = s[i + 2];

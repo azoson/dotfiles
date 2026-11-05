@@ -13,3 +13,11 @@ test('sequences and unknown input', () => {
   assert.deepEqual(parseKeys('\x1bOP'), []);
   assert.deepEqual(parseKeys('x\x1b[Bz'), ['down']);
 });
+
+test('view keys', () => {
+  assert.deepEqual(parseKeys('\t'), ['next_view']);
+  assert.deepEqual(parseKeys('v'), ['next_view']);
+  assert.deepEqual(parseKeys('\x1b[Z'), ['prev_view']);
+  assert.deepEqual(parseKeys('j\tk'), ['down', 'next_view', 'up']);
+  assert.deepEqual(parseKeys('\x1b'), ['esc']);
+});

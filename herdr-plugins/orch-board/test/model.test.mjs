@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { buildTeamGraph } from '../lib/graph.mjs';
 import { buildModel, taskSeq } from '../lib/model.mjs';
 
 const fx = (n) => JSON.parse(readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8'));
@@ -162,4 +163,74 @@ test('stale tasks still join', () => {
   assert.equal(m.tracking, true);
   assert.equal(m.agtask.stale, true);
   assert.equal(row(m, 'AGT-2').live.paneId, 'w1:p2');
+});
+
+test('allTasks, createdBy and people', () => {
+  const m = build({ tasks: fx('agtask-ls.json').tasks });
+  assert.deepEqual(m.allTasks.map((t) => t.id), ['AGT-1', 'AGT-2', 'AGT-3', 'AGT-4', 'AGT-5', 'AGT-6', 'AGT-7']);
+  assert.equal(m.tasks.length, 5);
+  assert.equal(m.allTasks[0].createdBy, 'orchestrator');
+  const names = m.people.map((p) => p.name);
+  assert.deepEqual(names, [...names].sort());
+  assert.ok(names.includes('auth-review') && names.includes('orchestrator') && names.includes('planner'));
+  const p = Object.fromEntries(m.people.map((x) => [x.name, x]));
+  assert.equal(p['impl-a'].via, 'name');
+  assert.equal(p['impl-a'].live.paneId, 'w1:p2');
+  assert.equal(p.planner.live, null);
+});
+
+test('people: pane fallback and ambiguity', () => {
+  const snap = fx('snapshot.json');
+  snap.agents.find((a) => a.pane_id === 'w1:p2').name = null;
+  let m = build({ snapshot: snap });
+  assert.equal(m.people.find((p) => p.name === 'impl-a').via, 'pane');
+  const dup = fx('snapshot.json');
+  dup.agents.push({ ...dup.agents.find((a) => a.name === 'impl-a'), pane_id: 'w1:p9' });
+  m = build({ snapshot: dup });
+  const p = m.people.find((x) => x.name === 'impl-a');
+  assert.deepEqual([p.ambiguous, p.live], [true, null]);
+});
+
+test('unnamed agent in an implementer pane during review is not untracked', () => {
+  const snap = fx('snapshot.json');
+  snap.agents.find((a) => a.pane_id === 'w1:p2').name = null;
+  const tasks = fx('agtask-ls.json').tasks;
+  tasks.find((t) => t.id === 'AGT-3').pane = 'w1:p2'; // review task whose implementer pane holds an unnamed agent
+  tasks.find((t) => t.id === 'AGT-2').pane = null;
+  const m = build({ snapshot: snap, tasks });
+  assert.equal(m.tasks.find((t) => t.id === 'AGT-3').primary, 'reviewer');
+  assert.ok(!m.untracked.some((a) => a.paneId === 'w1:p2'));
+});
+
+test('people do not seed the scope (reused names in other workspaces)', () => {
+  const s = fx('graph-snapshot.json');
+  s.agents = [{ ...s.agents[0], pane_id: 'w1:p9', name: 'someone', agent_status: 'idle' }];
+  s.workspaces.push({ workspace_id: 'w2', number: 2, label: 'other-repo', focused: false, pane_count: 1, tab_count: 1, active_tab_id: 'w2:t1', agent_status: 'idle', worktree: null });
+  s.tabs.push({ tab_id: 'w2:t1', workspace_id: 'w2', number: 1, label: 'x', focused: false, pane_count: 1, agent_status: 'idle' });
+  s.agents.push({ ...s.agents[0], pane_id: 'w2:p2', workspace_id: 'w2', tab_id: 'w2:t1', name: 'orchestrator' });
+  const task = { ...fx('agtask-ls.json').tasks[0], id: 'AGT-1', state: 'done', created_by: 'orchestrator', agent: null, reviewer: null };
+  // A live task by another creator, so the finished task's creator is not a parent.
+  const live = { ...task, id: 'AGT-2', state: 'in_progress', created_by: 'boss' };
+  const m = buildModel({ snapshot: s, agtask: { status: 'ok', tasks: [task, live], db: DB }, scopeWorkspaceId: 'w1', repoCwd: '/repo/example', showAll: false });
+  assert.deepEqual(m.scopeWorkspaceIds, ['w1']);
+  assert.ok(!m.untracked.some((a) => a.paneId === 'w2:p2'));
+  assert.equal(m.people.find((p) => p.name === 'orchestrator').live.paneId, 'w2:p2');
+});
+
+test('people pane fallback prefers live tasks over finished ones', () => {
+  const s = fx('graph-snapshot.json');
+  const mk = (pane, status) => ({ ...s.agents[0], pane_id: pane, name: null, agent_status: status });
+  s.agents = [mk('w1:p1', 'working'), mk('w1:p2', 'blocked')];
+  const base = fx('graph-ls.json').tasks[1];
+  const tasks = [
+    { ...base, id: 'AGT-1', state: 'done', agent: 'X', reviewer: null, pane: 'w1:p1', deps: [] },
+    { ...base, id: 'AGT-2', state: 'in_progress', agent: 'X', reviewer: null, pane: 'w1:p2', deps: [] },
+  ];
+  const m = buildModel({ snapshot: s, agtask: { status: 'ok', tasks, db: DB }, scopeWorkspaceId: 'w1', repoCwd: '/repo/demo', showAll: false });
+  const x = m.people.find((p) => p.name === 'X');
+  assert.equal(x.live.paneId, 'w1:p2');
+  assert.equal(x.via, 'pane');
+  const node = buildTeamGraph(m).rows.find((r) => r.key === 'team:X');
+  assert.equal(node.target, 'w1:p2');
+  assert.equal(node.status, 'blocked');
 });
