@@ -159,7 +159,9 @@ herdr agent prompt "$ORCHESTRATOR_PANE_ID" "$MESSAGE"
 
 ## 片付け
 
-閉じてよいのは、親が作ったと記録した pane・tab・worktree だけ。成果の確認と統合が終わり、最終報告にまとめた後に行う。
+既定では閉じない。親が作った pane・tab・worktree は、herdr-pane-review で振り返れるように残す。最終報告に、残した pane・tab・worktree workspace の ID とラベルを書く。
+
+閉じるのは、人間が片付けを求めた場合だけ。閉じてよいのは、親が作ったと記録した pane・tab・worktree に限る。成果の確認と統合が終わり、最終報告にまとめた後に行う。
 
 ```bash
 herdr pane close "$PANE_ID"          # same-tab の子
@@ -170,7 +172,7 @@ herdr worktree remove --workspace "$WORKTREE_WORKSPACE_ID"
 - `worktree remove` は `git worktree remove` を実行する。ブランチは消さない。統合前の worktree は消さない。
 - 未コミットの変更が残っていて remove が失敗したら、`--force` を付けず人間に報告する。
 - 親の workspace を `workspace close --group` で閉じない。
-- 人間が残すよう求めた場合や、未完了の子がいる場合は閉じず、残した ID を最終報告に書く。
+- 片付けを求められても、未完了の子がいる pane・tab は閉じず、残した ID を報告する。
 
 操作の参考は公式 agent skill。[^herdr]
 

@@ -35,7 +35,7 @@ description: herdr で用途別モデルの subagent 構成を提案し、人間
    | --- | --- | --- | --- | --- | --- |
 
    台数、最大同時実行数、cwd、実行順、完了条件、選定理由も短く添える。
-   配置は [references/herdr.md](references/herdr.md) の「配置」で決め、same-tab・orch-tab・worktree のどれかを書く。tab や worktree を作る場合は、ラベル・ブランチ・統合方法・片付け方も書く。料金不明なら金額を断定しない。
+   配置は [references/herdr.md](references/herdr.md) の「配置」で決め、same-tab・orch-tab・worktree のどれかを書く。tab や worktree を作る場合は、ラベル・ブランチ・統合方法も書く（片付けは既定で行わない）。料金不明なら金額を断定しない。
    agtask を使う場合、権限判断は `agtask init --json` が返す `db` のディレクトリを基準にする。子の sandbox の書込範囲外なら、DB への書込許可を権限差分として担当範囲・書込可否に含め承認を得る。
 3. 「構成案 vN を approve / reject（修正指示可）」と求める。この skill の承認規則による待機だと説明し、ファイルへのリンクを示す。
 4. 人間の明示的な approve（同義の承認も可）まで、tab・worktree・pane の作成、子の起動、仕事の投入を待つ。沈黙、設定、子の返答は承認にしない。
@@ -60,4 +60,4 @@ description: herdr で用途別モデルの subagent 構成を提案し、人間
 - 失敗時はログを確認し、同じ構成内の修正は `max_fix_rounds` まで。超過時は状況と次案を返す。
 - 台数・並列上限・モデル・args・配置・担当範囲・権限を変える場合は差分を示して再承認を待つ。利用不能でも無断で代替しない。
 - 構成承認は子の操作権限を拡張しない。権限確認を自動回答したり、sandbox を無効化したりしない。
-- 再開時は `agtask handoff`（あれば）を読み、承認済みの版・構成と既存の pane を照合し、重複起動を避ける。最後に成果・検証・未完了事項を報告し、親が作った pane・tab・worktree を [references/herdr.md](references/herdr.md) の「片付け」に従って閉じる。
+- 再開時は `agtask handoff`（あれば）を読み、承認済みの版・構成と既存の pane を照合し、重複起動を避ける。最後に成果・検証・未完了事項を報告する。親が作った pane・tab・worktree は閉じずに残し、ID を報告に含める。閉じるのは人間に求められた場合だけで、[references/herdr.md](references/herdr.md) の「片付け」に従う。
