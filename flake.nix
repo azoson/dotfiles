@@ -32,7 +32,7 @@
         stablePkgsFor = system: inputs.nixpkgs-stable.legacyPackages.${system};
       };
       flake.homeManagerModules.default = { ... }: {
-        imports = with inputs.self.homeManagerModules; [ agent-tools agent-skills shell-tools ];
+        imports = with inputs.self.homeManagerModules; [ agent-tools agent-skills herdr-plugins shell-tools ];
       };
       # Defaults belong to this repository, not to the reusable module.
       perSystem = { config, ... }: {

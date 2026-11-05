@@ -149,6 +149,7 @@ herdr agent prompt "$ORCHESTRATOR_PANE_ID" "$MESSAGE"
 独立した子への投入は並行してよい。既に working の子には仕事を重ねて投入しない。
 親は通知まで完了確認を行わない。`agent get/read/list`、pane 出力、結果ファイルの定期確認やループ、`agent wait` による完了待ちは禁止。
 上流 skill の待機例より、この通知方式を優先する。起動確認、通知後の回収、明示的な障害調査での単発の参照は可。
+人間向けに、dotfiles の herdr-plugins/orch-board（skill の配置先には含まれない）が agtask と herdr の状態を一覧表示する。親はこれを開かず、通知や完了確認の代わりにしない。
 
 通知後、必要なら `herdr agent read "$NAME" --source recent-unwrapped --lines 120` で詳細を回収する。
 通知や `idle` / `done` だけで成功とせず、成果物・テスト結果も確認する。

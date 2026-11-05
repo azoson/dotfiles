@@ -13,11 +13,12 @@ sources:
 ## 構成
 
 - [flake.nix](flake.nix): 依存の宣言、部品の公開、この repo 単体での開発・検証の入口。
-- [nix/agent-tools/](nix/agent-tools/): 再利用する flake-parts モジュール。Node・agtask と、それらを導入する Home Manager モジュール、agent-skills-nix に skill を登録する Home Manager モジュールを提供する。
+- [nix/agent-tools/](nix/agent-tools/): 再利用する flake-parts モジュール。Node・agtask と、それらを導入する Home Manager モジュール、agent-skills-nix に skill を登録する Home Manager モジュール、orch-board を store に置いて herdr に登録する Home Manager モジュールを提供する。
 - [nix/shell-tools.nix](nix/shell-tools.nix): starship・zoxide・atuin・fzf を有効にする Home Manager モジュール。
 - [nix/checks.nix](nix/checks.nix): モジュールの合成、Home Manager、Node の検証。
 - [skills/](skills/): エージェントへの指示と共有設定。
 - [tools/](tools/): skill が使う CLI の実装。agtask の仕様は [docs/agtask.md](docs/agtask.md)。
+- [herdr-plugins/](herdr-plugins/): 人間が使う herdr plugin。orch-board は herdr-orchestrate の実行状態を読み取り専用で表示する。
 
 各端末の構成は利用側の flake が持つ。公開モジュールは、利用側の default package・shell・systems を変更しない。
 Node のパッケージ選択は [node.nix](nix/agent-tools/node.nix)、モデルの役割分担は各 skill の `defaults.toml` を正とする。

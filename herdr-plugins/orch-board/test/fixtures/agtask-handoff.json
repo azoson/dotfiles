@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "db": "/repo/example/.agtask/tasks.db",
+  "generated_at": "2026-01-01T00:00:00Z",
+  "counts": {},
+  "ready": [],
+  "tasks": [],
+  "finished": []
+}

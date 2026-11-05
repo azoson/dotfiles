@@ -1,0 +1,16 @@
+{
+  "invocation_source": "keybinding",
+  "workspace_id": "w1",
+  "workspace_label": "main",
+  "workspace_cwd": "/repo/example",
+  "tab_id": "w1:t1",
+  "focused_pane_id": "w1:p1",
+  "focused_pane_cwd": "/repo/example/src",
+  "worktree": {
+    "repo_key": "repo-example",
+    "repo_name": "example",
+    "repo_root": "/repo/example",
+    "checkout_path": "/repo/example",
+    "is_linked_worktree": false
+  }
+}

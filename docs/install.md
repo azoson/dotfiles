@@ -42,6 +42,7 @@ outputs = { nixpkgs, home-manager, agent-skills, dotfiles, ... }: {
       agent-skills.homeManagerModules.default
       dotfiles.homeManagerModules.agent-tools
       dotfiles.homeManagerModules.agent-skills
+      dotfiles.homeManagerModules.herdr-plugins  # 任意。orch-board を入れる
     ];
   };
 };
@@ -49,6 +50,7 @@ outputs = { nixpkgs, home-manager, agent-skills, dotfiles, ... }: {
 
 - `homeManagerModules.agent-tools`: Node と [agtask](agtask.md) を `home.packages` に追加する。
 - `homeManagerModules.agent-skills`: [agent-skills-nix](https://github.com/Kyure-A/agent-skills-nix) の `programs.agent-skills` に skill を登録する。agent-skills-nix のモジュールは import しない。
+- `homeManagerModules.herdr-plugins`: [orch-board](../herdr-plugins/orch-board/README.md) を store に置き、`herdr plugin link` で登録する。
 
 agent-skills-nix の input とモジュールの import は利用側で行う。モジュールは重複排除されないため、一つの構成で一度だけ import する。
 dotfiles の input は `inputs.dotfiles.inputs.agent-skills.follows = "agent-skills";` などで利用側の input に揃える。

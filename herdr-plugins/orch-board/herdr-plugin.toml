@@ -1,0 +1,20 @@
+id = "azoson.orch-board"
+name = "Orch Board"
+version = "0.1.0"
+min_herdr_version = "0.9.5"
+description = "Read-only board for herdr-orchestrate runs: agtask tasks joined with live herdr agents"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "open"
+title = "Open orchestration board"
+contexts = ["workspace"]
+command = ["node", "bin/open.mjs"]
+
+[[panes]]
+id = "board"
+title = "Orch board"
+placement = "popup"
+width = "90%"
+height = "90%"
+command = ["node", "bin/board.mjs"]

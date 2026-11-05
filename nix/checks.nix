@@ -22,6 +22,7 @@
           inputs.agent-skills.homeManagerModules.default
           self.homeManagerModules.agent-tools
           self.homeManagerModules.agent-skills
+          self.homeManagerModules.herdr-plugins
           self.homeManagerModules.shell-tools
           {
             programs.zsh.enable = true;
@@ -51,13 +52,21 @@
           assert consumer.devShells.${system}.default.name == "consumer-shell";
           assert consumer.packages.${system}.node.drvPath == config.packages.node.drvPath;
           assert consumer.packages.${system}.agtask.drvPath == config.packages.agtask.drvPath;
-          assert builtins.attrNames consumer.homeManagerModules == [ "agent-skills" "agent-tools" "existing" ];
+          assert builtins.attrNames consumer.homeManagerModules == [ "agent-skills" "agent-tools" "existing" "herdr-plugins" ];
           assert (consumer.checks.${system} or { }) == { };
           pkgs.runCommand "agent-tools-module-composition" { } "touch $out";
         node-version = config.packages.node.tests.version;
+        orch-board = config.packages.orch-board.tests.acceptance;
+        herdr-plugin-link = pkgs.runCommand "herdr-plugin-link-test" { } ''
+          SCRIPT=${./agent-tools/herdr-plugin-link.sh} NODE=${config.packages.node}/bin/node CU=${pkgs.coreutils}/bin \
+            ${pkgs.runtimeShell} ${./agent-tools/herdr-plugin-link-test.sh}
+          touch "$out"
+        '';
         agtask = config.packages.agtask.tests.acceptance;
         home-manager =
           assert home.config.home.file ? ".agents/skills";
+          assert home.config.xdg.dataFile ? "herdr-plugins/orch-board";
+          assert home.config.home.activation ? herdrPlugins;
           assert pkgs.lib.hasInfix "atuin init zsh" home.config.programs.zsh.initContent;
           home.config.home.activationPackage;
       };

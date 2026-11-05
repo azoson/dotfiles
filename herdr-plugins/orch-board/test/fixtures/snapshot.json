@@ -1,0 +1,174 @@
+{
+  "version": "0.9.5",
+  "protocol": 22,
+  "focused_workspace_id": "w1",
+  "focused_tab_id": "w1:t1",
+  "focused_pane_id": "w1:p1",
+  "workspaces": [
+    {
+      "workspace_id": "w1",
+      "number": 1,
+      "label": "main",
+      "focused": true,
+      "pane_count": 4,
+      "tab_count": 2,
+      "active_tab_id": "w1:t1",
+      "agent_status": "working",
+      "worktree": {
+        "repo_key": "repo-example",
+        "repo_name": "example",
+        "repo_root": "/repo/example",
+        "checkout_path": "/repo/example",
+        "is_linked_worktree": false
+      }
+    },
+    {
+      "workspace_id": "w2",
+      "number": 2,
+      "label": "auth-wt",
+      "focused": false,
+      "pane_count": 1,
+      "tab_count": 1,
+      "active_tab_id": "w2:t1",
+      "agent_status": "blocked",
+      "worktree": {
+        "repo_key": "repo-example",
+        "repo_name": "example",
+        "repo_root": "/repo/example",
+        "checkout_path": "/repo/example-wt/auth-wt",
+        "is_linked_worktree": true
+      }
+    },
+    {
+      "workspace_id": "w3",
+      "number": 3,
+      "label": "other",
+      "focused": false,
+      "pane_count": 1,
+      "tab_count": 1,
+      "active_tab_id": "w3:t1",
+      "agent_status": "idle",
+      "worktree": null
+    }
+  ],
+  "tabs": [
+    {
+      "tab_id": "w1:t1",
+      "workspace_id": "w1",
+      "number": 1,
+      "label": "main",
+      "focused": true,
+      "pane_count": 2,
+      "agent_status": "working"
+    },
+    {
+      "tab_id": "w1:t2",
+      "workspace_id": "w1",
+      "number": 2,
+      "label": "orch-auth",
+      "focused": false,
+      "pane_count": 2,
+      "agent_status": "working"
+    },
+    {
+      "tab_id": "w2:t1",
+      "workspace_id": "w2",
+      "number": 1,
+      "label": "1",
+      "focused": false,
+      "pane_count": 1,
+      "agent_status": "blocked"
+    },
+    {
+      "tab_id": "w3:t1",
+      "workspace_id": "w3",
+      "number": 1,
+      "label": "misc",
+      "focused": false,
+      "pane_count": 1,
+      "agent_status": "idle"
+    }
+  ],
+  "panes": [],
+  "layouts": [],
+  "agents": [
+    {
+      "pane_id": "w1:p1",
+      "terminal_id": "t-w1:p1",
+      "workspace_id": "w1",
+      "tab_id": "w1:t1",
+      "focused": false,
+      "agent_status": "working",
+      "revision": 1,
+      "name": "orchestrator",
+      "agent": "claude",
+      "cwd": "/repo/example",
+      "foreground_cwd": "/repo/example"
+    },
+    {
+      "pane_id": "w1:p2",
+      "terminal_id": "t-w1:p2",
+      "workspace_id": "w1",
+      "tab_id": "w1:t2",
+      "focused": false,
+      "agent_status": "working",
+      "revision": 1,
+      "name": "impl-a",
+      "agent": "claude",
+      "cwd": "/repo/example",
+      "foreground_cwd": "/repo/example"
+    },
+    {
+      "pane_id": "w1:p3",
+      "terminal_id": "t-w1:p3",
+      "workspace_id": "w1",
+      "tab_id": "w1:t2",
+      "focused": false,
+      "agent_status": "idle",
+      "revision": 1,
+      "name": "auth-review",
+      "agent": "codex",
+      "cwd": "/repo/example",
+      "foreground_cwd": "/repo/example"
+    },
+    {
+      "pane_id": "w1:p4",
+      "terminal_id": "t-w1:p4",
+      "workspace_id": "w1",
+      "tab_id": "w1:t1",
+      "focused": false,
+      "agent_status": "idle",
+      "revision": 1,
+      "name": null,
+      "agent": "codex",
+      "cwd": "/repo/example",
+      "foreground_cwd": "/repo/example"
+    },
+    {
+      "pane_id": "w2:p1",
+      "terminal_id": "t-w2:p1",
+      "workspace_id": "w2",
+      "tab_id": "w2:t1",
+      "focused": false,
+      "agent_status": "blocked",
+      "revision": 1,
+      "name": "impl-b",
+      "agent": "claude",
+      "cwd": "/repo/example-wt/auth-wt",
+      "foreground_cwd": "/repo/example-wt/auth-wt"
+    },
+    {
+      "pane_id": "w3:p1",
+      "terminal_id": "t-w3:p1",
+      "workspace_id": "w3",
+      "tab_id": "w3:t1",
+      "focused": false,
+      "agent_status": "idle",
+      "revision": 1,
+      "name": "stranger",
+      "agent": "claude",
+      "cwd": "/elsewhere",
+      "foreground_cwd": "/elsewhere"
+    }
+  ]
+}
