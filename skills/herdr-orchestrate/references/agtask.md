@@ -30,6 +30,12 @@ agtask init --json
 
 - 承認されない場合や他の CLI で開けない場合、その子の仕事は agtask で管理せず、従来どおり herdr の通知と親の確認で扱う。構成案にその旨を書く。親が子の名前で claim・証拠・submit を代行しない。
 
+### 複数 repo の workspace
+
+- ルートで `agtask init --workspace --json` を実行する。`.agtask/tasks.db` と目印 `.agtask/workspace` ができ、配下の repo や linked worktree からも同じ DB に解決される。個別の repo では `init` しない。
+- `--write` / `--read` はルートからの相対パスで書く（例: `hub/src/`）。
+- 子の cwd が担当 repo の場合、`<root>/.agtask` と `<root>/.orch` は書込範囲の外になる。構成案に権限差分として示す。Codex では `writable_roots` に両方の絶対パスを入れる。他の CLI で開けなければ、上の項目どおり agtask で管理しない。`<root>/.orch` に書けない子には、Git の追跡外になる担当 repo の作業領域（例: `<repo>/.orch/`）を指定し、構成案に書く。
+
 ## 計画（親、承認後・起動前）
 
 構成案の子ごとにタスクを作り、依存を張る。actor は親の名前（例: `orchestrator`）。

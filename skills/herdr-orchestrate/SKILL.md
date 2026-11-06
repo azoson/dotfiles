@@ -29,6 +29,7 @@ description: herdr で用途別モデルの subagent 構成を提案し、人間
 ## 提案と承認
 
 1. 依頼、対象ファイル、CLI の有無と `--help` を確認する。まだ子を起動しない。
+   cwd が Git の外で直下に複数の repo がある、または AGENTS.md の作業環境に複数のリポジトリが並ぶ場合は、複数 repo の workspace として扱う。親は workspace のルートを基点に、repo を横断して影響範囲を調べて計画する。個別の repo に cd して `agtask init` や `.orch/` を作らない。詳細は [references/agtask.md](references/agtask.md) の「実行前（親）」と [references/herdr.md](references/herdr.md) の「配置」にある。
 2. 次の形式で構成案に版番号を付けて示す。
 
    | 名前 | 役割・成果物 | CLI / モデル / args | 配置 | 担当範囲・書込可否 | 依存先 |

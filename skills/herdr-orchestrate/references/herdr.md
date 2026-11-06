@@ -56,6 +56,9 @@ herdr --skill
 
 - 1 つの tab で同じ向きの split を繰り返さない。列や行が狭くなり、agent の出力を読めなくなる。[^herdr]
 - worktree の子は cwd が別 checkout になる。agtask を使う場合は [agtask.md](agtask.md) の書込範囲外の扱いになるので、権限差分も構成案に書く。
+- workspace（複数 repo をまとめたルート）での既定は、調査・レビューの子の cwd をルート、実装の子の cwd を担当 repo とする。構成案の cwd と配置には repo 名を書く。
+- 複数 repo の workspace では、worktree を repo ごとに `herdr worktree create --workspace <ID> --cwd <root>/<repo> ...` で作る。
+- commit・PR・push 前の `git fetch` の確認は repo ごとに行う。
 - 1 つの依頼で作る tab は orch-tab と logs-tab をそれぞれ最大 1 つにする。子ごとに tab や workspace を作らない。
 
 ## 起動（構成承認後）
