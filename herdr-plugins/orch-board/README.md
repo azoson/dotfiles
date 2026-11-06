@@ -94,7 +94,7 @@ herdr plugin link ~/dotfiles/herdr-plugins/orch-board   # 作業ツリーを直�
 ## トラブルシュート
 
 - `herdr plugin log list --plugin azoson.orch-board` で起動ログを見る。
-- `node bin/board.mjs --dump --cwd <repo>` は TTY なしで結合結果を JSON で出す。
+- `node bin/board.mjs --dump --cwd <repo または workspace のルート>` は TTY なしで結合結果を JSON で出す。`--cwd` は agtask の保存先の解決に使う。複数 repo の workspace では、ルートや配下の repo を指すと workspace の DB を使い、配下の repo の worktree も対象に入る。
 - 表示が崩れるときは `NO_COLOR=1` を付ける。
 - agtask が別の場所を使うときは `ORCH_BOARD_AGTASK` で実行ファイルを指定する。
 

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync, readdirSync, chmodSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync, readdirSync, chmodSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,7 @@ function environment(extra = {}) {
   return { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('GIT_') && !k.startsWith('AGTASK_'))), ...extra };
 }
 function fixture(t, init = true) {
-  const cwd = mkdtempSync(resolve(tmpdir(), 'agtask-test-'));
+  const cwd = realpathSync(mkdtempSync(resolve(tmpdir(), 'agtask-test-')));
   t.after(() => rmSync(cwd, { recursive: true, force: true }));
   const db = resolve(cwd, 'tasks.db');
   const env = environment({ AGTASK_DB: db });
@@ -244,6 +244,43 @@ test('DB location in Git repositories and .gitignore never writes .git', t => {
   assert.deepEqual(readdirSync(resolve(f.cwd, 'relative')).filter(p => p === '.gitignore'), []);
   const noGit = environment({ PATH: resolve(f.cwd, 'no-bin') });
   assert.equal(f.call(['init'], undefined, { cwd: sub, env: noGit }).db, resolve(sub, '.agtask/tasks.db'));
+});
+
+test('workspace DB: init --workspace, marker lookup from repos and external linked worktrees', t => {
+  const f = fixture(t, false), env = environment({ AGTASK_DB: '' });
+  const root = realpathSync(f.cwd);
+  const at = (cwd, args = ['init']) => f.call(args, undefined, { cwd, env });
+  const ws = resolve(root, 'ws'), repo = resolve(ws, 'hub'), sub = resolve(repo, 'src/deep');
+  mkdirSync(sub, { recursive: true }); git(repo, 'init'); git(repo, 'commit', '--allow-empty', '-m', 'initial');
+  // A pre-existing repo DB must not be used once a marker exists above it.
+  const repoDb = at(repo).db; assert.equal(repoDb, resolve(repo, '.agtask/tasks.db'));
+  assert.equal(at(repo).workspace, null);
+  // AGTASK_DB and --workspace conflict.
+  const conflict = f.call(['init', '--workspace'], 'USAGE', { cwd: ws });
+  assert.equal(conflict.ok, false);
+  const created = at(ws, ['init', '--workspace']);
+  assert.equal(created.db, resolve(ws, '.agtask/tasks.db')); assert.equal(created.workspace, ws); assert.equal(created.created, true);
+  assert.equal(created.gitignore, 'created');
+  const mark = resolve(ws, '.agtask/workspace'); const text = readFileSync(mark, 'utf8');
+  writeFileSync(mark, 'custom\n');
+  const again = at(ws, ['init', '--workspace']);
+  assert.equal(again.created, false); assert.equal(readFileSync(mark, 'utf8'), 'custom\n'); assert.ok(text.length > 0);
+  // Resolution from repo subdirectory, workspace root, and a linked worktree outside the workspace.
+  const external = resolve(root, 'outside-wt'); git(repo, 'worktree', 'add', '-b', 'ext', external);
+  for (const cwd of [sub, ws, repo, external]) {
+    const r = at(cwd); assert.equal(r.db, created.db, cwd); assert.equal(r.workspace, ws, cwd);
+  }
+  // Nested workspace: nearest marker wins.
+  const inner = resolve(ws, 'inner'), innerRepo = resolve(inner, 'api'); mkdirSync(innerRepo, { recursive: true });
+  git(innerRepo, 'init'); at(inner, ['init', '--workspace']);
+  assert.equal(at(innerRepo).db, resolve(inner, '.agtask/tasks.db')); assert.equal(at(innerRepo).workspace, inner);
+  assert.equal(at(sub).db, created.db);
+  // Ancestor with tasks.db but no marker is ignored.
+  const home = resolve(root, 'home'), proj = resolve(home, 'proj'); mkdirSync(proj, { recursive: true });
+  at(home); assert.equal(at(proj).db, resolve(proj, '.agtask/tasks.db')); assert.equal(at(proj).workspace, null);
+  // Non-init commands resolve the same way.
+  at(ws, ['init', '--workspace', '--prefix', 'AGT']);
+  const listed = f.call(['ls'], undefined, { cwd: external, env }); assert.deepEqual(listed.tasks, []);
 });
 
 test('graph text, mermaid escaping and topological tie order', t => {

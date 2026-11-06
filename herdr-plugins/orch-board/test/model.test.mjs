@@ -234,3 +234,19 @@ test('people pane fallback prefers live tasks over finished ones', () => {
   assert.equal(node.target, 'w1:p2');
   assert.equal(node.status, 'blocked');
 });
+
+test('workspace-root DB: linked worktrees of repos under the root are in scope and worktrees', () => {
+  const WS_DB = '/ws/team/.agtask/tasks.db';
+  const snap = fx('snapshot.json');
+  // Scope workspace has an unrelated key; w2 is a linked worktree of /ws/team/hub (checkout outside the workspace).
+  for (const w of snap.workspaces) if (w.worktree) { w.worktree.repo_key = `k-${w.workspace_id}`; w.worktree.repo_root = `/elsewhere/${w.workspace_id}`; }
+  const w2 = snap.workspaces.find((w) => w.workspace_id === 'w2');
+  w2.worktree.repo_root = '/ws/team/hub';
+  const m = build({ snapshot: snap, tasks: [], agtask: { status: 'ok', tasks: [], db: WS_DB } });
+  assert.equal(m.repo.root, '/ws/team');
+  assert.deepEqual(m.scopeWorkspaceIds, ['w1', 'w2']);
+  assert.deepEqual(m.layout.worktrees.map((w) => w.workspaceId), ['w2']);
+  // A sibling path sharing only a string prefix is not under the root.
+  w2.worktree.repo_root = '/ws/team-other/hub';
+  assert.deepEqual(build({ snapshot: snap, tasks: [], agtask: { status: 'ok', tasks: [], db: WS_DB } }).scopeWorkspaceIds, ['w1']);
+});

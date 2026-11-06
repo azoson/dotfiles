@@ -2,7 +2,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
 import { execFileSync } from 'node:child_process';
-import { statSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { statSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 
 const VERSION = '0.1.0';
@@ -11,7 +11,7 @@ const roles = ['planning', 'research', 'implementation', 'review', 'cli'];
 const terminal = ['done', 'failed', 'cancelled'];
 const reads = ['ls', 'ready', 'show', 'history', 'graph', 'handoff'];
 const signatures = {
-  init: '[--prefix <PREFIX>]',
+  init: '[--prefix <PREFIX>] [--workspace]',
   add: '<title> --role <role> --goal <text> --criterion <text>... [--write <path>]... [--read <path>]... [--dep <id>]... [--agent <name>] [--reviewer <name>] [--plan <version>] [--max-fix-rounds <n>] [--next <text>]',
   dep: 'add|rm <id> <depends-on>...',
   ls: '[--state <state>]... [--agent <name>] [--plan <version>] [--ready]',
@@ -26,7 +26,7 @@ const signatures = {
   cancel: '<id> --reason <text>', graph: '[--format text|mermaid]', handoff: '[<id>...] [--all]',
 };
 const allowed = {
-  init: ['prefix'], add: ['role', 'goal', 'criterion', 'write', 'read', 'dep', 'agent', 'reviewer', 'plan', 'max-fix-rounds', 'next'],
+  init: ['prefix', 'workspace'], add: ['role', 'goal', 'criterion', 'write', 'read', 'dep', 'agent', 'reviewer', 'plan', 'max-fix-rounds', 'next'],
   dep: [], ls: ['state', 'agent', 'plan', 'ready'], ready: ['agent'], show: [], history: [], claim: ['pane'],
   release: ['reason', 'unassign'], note: ['kind', 'resolve'], next: ['clear'],
   evidence: ['criterion', 'verdict', 'basis', 'missing', 'artifact'], submit: ['output', 'summary', 'next'],
@@ -51,17 +51,23 @@ const name = value => { if (!/^[A-Za-z0-9][A-Za-z0-9._:@-]{0,63}$/.test(value)) 
 const member = (value, values) => { if (!values.includes(value)) usage(`不正な値: ${value}`); return value; };
 const unique = values => [...new Set(values)];
 const now = () => new Date().toISOString();
-let db, dbPath, timeout = 5000, json = process.argv.slice(2).includes('--json');
+let db, dbPath, workspaceRoot = null, timeout = 5000, json = process.argv.slice(2).includes('--json');
 const all = (sql, ...args) => db.prepare(sql).all(...args);
 const one = (sql, ...args) => db.prepare(sql).get(...args);
 const run = (sql, ...args) => db.prepare(sql).run(...args);
 const meta = key => one('SELECT value FROM meta WHERE key = ?', key)?.value;
-function location() {
-  if (process.env.AGTASK_DB) return resolve(process.env.AGTASK_DB);
+function location(init) {
+  if (process.env.AGTASK_DB) return { db: resolve(process.env.AGTASK_DB), workspace: null };
+  if (init) return { db: resolve(process.cwd(), '.agtask/tasks.db'), workspace: process.cwd() };
   const git = args => { try { return execFileSync('git', args, { cwd: process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
   const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
-  if (common && basename(common) === '.git' && git([`--git-dir=${common}`, 'rev-parse', '--is-bare-repository']) === 'false') return resolve(dirname(common), '.agtask/tasks.db');
-  return resolve(git(['rev-parse', '--show-toplevel']) || process.cwd(), '.agtask/tasks.db');
+  const main = common && basename(common) === '.git' && git([`--git-dir=${common}`, 'rev-parse', '--is-bare-repository']) === 'false' ? dirname(common) : null;
+  const anchor = resolve(main || git(['rev-parse', '--show-toplevel']) || process.cwd());
+  for (let dir = anchor; ; dir = dirname(dir)) {
+    if (existsSync(resolve(dir, '.agtask/workspace'))) return { db: resolve(dir, '.agtask/tasks.db'), workspace: dir };
+    if (dirname(dir) === dir) break;
+  }
+  return { db: resolve(anchor, '.agtask/tasks.db'), workspace: null };
 }
 function event(task, kind, text, data, actor) {
   return Number(run('INSERT INTO events(task_id,kind,text,data,actor,at) VALUES(?,?,?,?,?,?)', task, kind, text, JSON.stringify(data), actor, now()).lastInsertRowid);
@@ -237,7 +243,11 @@ function execute(command, p, v, actor) {
       try { writeFileSync(resolve(dirname(dbPath), '.gitignore'), '*\n', { flag: 'wx' }); gitignore = 'created'; }
       catch (error) { if (error.code !== 'EEXIST') throw error; gitignore = 'exists'; }
     }
-    return { db: dbPath, prefix: meta('prefix'), created, gitignore };
+    if (v.workspace) {
+      const mark = resolve(dirname(dbPath), 'workspace');
+      if (!existsSync(mark)) writeFileSync(mark, 'agtask workspace root\n', { flag: 'wx' });
+    }
+    return { db: dbPath, prefix: meta('prefix'), created, gitignore, workspace: workspaceRoot };
   }
   if (command === 'add') {
     count(1);
@@ -517,7 +527,7 @@ function ensureWAL(deadline) {
 }
 function main() {
   const started = performance.now();
-  const boolean = ['json', 'help', 'version', 'ready', 'unassign', 'clear', 'all'];
+  const boolean = ['json', 'help', 'version', 'ready', 'unassign', 'clear', 'all', 'workspace'];
   const multiple = ['criterion', 'write', 'read', 'dep', 'state', 'artifact', 'output'];
   const keys = unique(['as', ...Object.values(allowed).flat(), ...boolean]);
   const options = Object.fromEntries(keys.map(k => [k, { type: boolean.includes(k) ? 'boolean' : 'string', ...(multiple.includes(k) ? { multiple: true } : {}), ...(k === 'help' ? { short: 'h' } : {}) }]));
@@ -547,7 +557,8 @@ function main() {
   const actor = v.as || (process.env.AGTASK_AGENT ? name(clean(process.env.AGTASK_AGENT)) : null);
   if (!reads.includes(command) && command !== 'init' && !actor) usage('--as または AGTASK_AGENT が必要です');
   if (process.env.AGTASK_BUSY_TIMEOUT_MS !== undefined) timeout = integer(process.env.AGTASK_BUSY_TIMEOUT_MS);
-  dbPath = location();
+  if (v.workspace && process.env.AGTASK_DB) usage('AGTASK_DB と --workspace は併用できません');
+  ({ db: dbPath, workspace: workspaceRoot } = location(command === 'init' && v.workspace));
   if (command !== 'init') {
     try { statSync(dbPath); }
     catch (error) {

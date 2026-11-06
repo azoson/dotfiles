@@ -157,7 +157,9 @@ export function buildModel({ snapshot, agtask, scopeWorkspaceId, repoCwd, showAl
     const key = scopeWs?.worktree?.repo_key;
     for (const w of workspaces) {
       if (key && w.worktree?.repo_key === key) scopeIds.add(w.workspace_id);
-      if (root && w.worktree?.repo_root === root) scopeIds.add(w.workspace_id);
+      // root is the DB's repo root, or a workspace root holding several repos.
+      const repoRoot = w.worktree?.repo_root;
+      if (root && repoRoot && (repoRoot === root || repoRoot.startsWith(`${root}/`))) scopeIds.add(w.workspace_id);
     }
     for (const a of matched) scopeIds.add(a.workspace_id);
   }
