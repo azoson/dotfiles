@@ -9,6 +9,7 @@ description: herdr-orchestrate で使う、ローカルのエージェント用�
 長いエージェント作業の計画・成果物・検証の証拠・進捗を、Git 管理外の SQLite に記録する CLI。
 完了は受け入れ条件ごとの証拠とレビューで判定し、中断後は `handoff` で再開できる要約を出す。
 herdr-orchestrate での使い方は [agtask 操作](../skills/herdr-orchestrate/references/agtask.md) を参照する。
+作業の無駄を記録する `agtask friction` は [agtask friction](friction.md) に分けて定める。
 
 - 記録だけを行う。担当ファイル・書込可否は表示用で、強制は sandbox と CLI の権限設定が担う。
 - `wait` / `watch` などの待機機能は作らない。完了通知は herdr で行う。

@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
 import { execFileSync } from 'node:child_process';
 import { statSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { resolve, dirname, basename } from 'node:path';
+import { resolve, dirname, basename, relative, isAbsolute } from 'node:path';
 
 const VERSION = '0.1.0';
 const states = ['todo', 'in_progress', 'review', 'done', 'blocked', 'failed', 'cancelled'];
@@ -24,6 +24,7 @@ const signatures = {
   reject: '<id> --reason <text> [--next <text>]', block: '<id> --reason <text>',
   unblock: '<id> [--note <text>] [--max-fix-rounds <n>]', fail: '<id> --reason <text>',
   cancel: '<id> --reason <text>', graph: '[--format text|mermaid]', handoff: '[<id>...] [--all]',
+  friction: 'search|add|hit|ls|show|report|accept|close|reopen|note ...',
 };
 const allowed = {
   init: ['prefix', 'workspace'], add: ['role', 'goal', 'criterion', 'write', 'read', 'dep', 'agent', 'reviewer', 'plan', 'max-fix-rounds', 'next'],
@@ -31,7 +32,7 @@ const allowed = {
   release: ['reason', 'unassign'], note: ['kind', 'resolve'], next: ['clear'],
   evidence: ['criterion', 'verdict', 'basis', 'missing', 'artifact'], submit: ['output', 'summary', 'next'],
   accept: ['note'], reject: ['reason', 'next'], block: ['reason'], unblock: ['note', 'max-fix-rounds'],
-  fail: ['reason'], cancel: ['reason'], graph: ['format'], handoff: ['all'],
+  fail: ['reason'], cancel: ['reason'], graph: ['format'], handoff: ['all'], friction: [],
 };
 const preconditions = {
   claim: 'todo か同じ担当の in_progress。依存が全て done。', release: 'in_progress。',
@@ -218,7 +219,7 @@ CREATE TABLE evidence (
 function help(command) {
   if (command && !Object.hasOwn(signatures, command)) usage(`未知のコマンド: ${command}`);
   const selected = command ? [command] : Object.keys(signatures);
-  return selected.map(c => `agtask ${c} ${signatures[c]}\n  前提: ${preconditions[c] || (c === 'init' ? 'DB 不要。' : 'init 済み。')} ${!reads.includes(c) && c !== 'init' ? 'actor 必須。' : ''}`).join('\n\n') + '\n\n共通: --json, --as <name> (AGTASK_AGENT より優先), -h / --help\nagtask --version\nagtask help [<command>]';
+  return selected.map(c => c === 'friction' ? frictionHelp() : `agtask ${c} ${signatures[c]}\n  前提: ${preconditions[c] || (c === 'init' ? 'DB 不要。' : 'init 済み。')} ${!reads.includes(c) && c !== 'init' ? 'actor 必須。' : ''}`).join('\n\n') + '\n\n共通: --json, --as <name> (AGTASK_AGENT より優先), -h / --help\nagtask --version\nagtask help [<command>]';
 }
 function execute(command, p, v, actor) {
   const required = key => { if (v[key] === undefined) usage(`--${key} は必須です`); return v[key]; };
@@ -507,6 +508,240 @@ function historyMarkdown(t, events, evidence) {
   }
   return lines.join('\n');
 }
+// friction: workspace の friction.db（tasks.db の兄弟）に、エージェントの無駄なコストを記録する。仕様は docs/friction.md。
+const frictionKinds = ['knowledge', 'failure', 'environment', 'instruction', 'tooling'];
+const frictionStates = ['open', 'accepted', 'closed'];
+const costs = { low: 1, mid: 3, high: 9 };
+const frictionReads = ['search', 'ls', 'show', 'report'];
+const frictionSignatures = {
+  search: '<word>... [--all]',
+  add: '<title> --kind <kind> --fact <text|-> --cost low|mid|high --basis <text|-> [--scope <path>] [--target <path>] [--steps <n>] [--task <id>] [--model <name>]',
+  hit: '<FR-ID> --cost low|mid|high --basis <text|-> [--steps <n>] [--task <id>] [--model <name>]',
+  ls: '[--state <state>]... [--kind <kind>]... [--scope <prefix>] [--since <datetime>]',
+  show: '<FR-ID>', report: '[--since <datetime>] [--limit <n>]',
+  accept: '<FR-ID> [--target <path>] [--note <text>]',
+  close: '<FR-ID> --resolution fixed|wontfix|duplicate --ref <text>',
+  reopen: '<FR-ID> --reason <text>', note: '<FR-ID> <text|->',
+};
+const frictionAllowed = {
+  search: ['all'], add: ['kind', 'fact', 'cost', 'basis', 'scope', 'target', 'steps', 'task', 'model'],
+  hit: ['cost', 'basis', 'steps', 'task', 'model'], ls: ['state', 'kind', 'scope', 'since'], show: [],
+  report: ['since', 'limit'], accept: ['target', 'note'], close: ['resolution', 'ref'], reopen: ['reason'], note: [],
+};
+const frictionPreconditions = {
+  hit: 'closed / duplicate の項目には追記できない。', accept: 'open。', close: 'open / accepted。duplicate の ref は既存の FR-ID。', reopen: 'closed。',
+};
+const frictionSchema = `
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+
+CREATE TABLE items (
+  id TEXT PRIMARY KEY,
+  seq INTEGER NOT NULL UNIQUE,
+  kind TEXT NOT NULL CHECK (kind IN ('knowledge','failure','environment','instruction','tooling')),
+  title TEXT NOT NULL,
+  fact TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  target TEXT,
+  state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','accepted','closed')),
+  resolution TEXT CHECK (resolution IN ('fixed','wontfix','duplicate')),
+  ref TEXT,
+  closed_at TEXT,
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK ((state = 'closed') = (resolution IS NOT NULL))
+) STRICT;
+
+CREATE TABLE hits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id TEXT NOT NULL REFERENCES items(id),
+  cost TEXT NOT NULL CHECK (cost IN ('low','mid','high')),
+  steps INTEGER CHECK (steps >= 0),
+  basis TEXT NOT NULL,
+  after_close INTEGER NOT NULL CHECK (after_close IN (0, 1)),
+  task TEXT,
+  cwd TEXT NOT NULL,
+  pane TEXT,
+  model TEXT,
+  actor TEXT NOT NULL,
+  at TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id TEXT NOT NULL REFERENCES items(id),
+  kind TEXT NOT NULL CHECK (kind IN ('created','state','note')),
+  text TEXT,
+  data TEXT NOT NULL DEFAULT '{}',
+  actor TEXT NOT NULL,
+  at TEXT NOT NULL
+) STRICT;`;
+function frictionHelp() {
+  return Object.keys(frictionSignatures).map(s => `agtask friction ${s} ${frictionSignatures[s]}\n  前提: init 済み（tasks.db と同じディレクトリの friction.db を使う）。${frictionPreconditions[s] ? ` ${frictionPreconditions[s]}` : ''}${frictionReads.includes(s) ? '' : ' actor 必須。'}`).join('\n\n');
+}
+function limited(value, max, label) {
+  if ([...value].length > max) usage(`${label} は ${max} 文字以内です`);
+  return value;
+}
+function frictionDB(started, read) {
+  const tasksDb = dbPath;
+  dbPath = resolve(dirname(tasksDb), 'friction.db');
+  const root = dirname(dirname(tasksDb));
+  if (read && !existsSync(dbPath)) return { root, empty: true };
+  db = new DatabaseSync(dbPath, { timeout, readOnly: read });
+  db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=NORMAL');
+  if (!read) ensureWAL(started + timeout);
+  db.exec(read ? 'BEGIN' : 'BEGIN IMMEDIATE');
+  const version = one('PRAGMA user_version').user_version;
+  if (version > 1) fail('SCHEMA_TOO_NEW', '未対応のスキーマです', { user_version: version });
+  if (!version && !read) {
+    db.exec(frictionSchema);
+    for (const table of ['hits', 'events']) for (const action of ['UPDATE', 'DELETE']) db.exec(`CREATE TRIGGER ${table}_${action.toLowerCase()} BEFORE ${action} ON ${table} BEGIN SELECT RAISE(ABORT,'append only'); END`);
+    run("INSERT INTO meta VALUES('next_seq','1')");
+    db.exec('PRAGMA user_version=1');
+  }
+  return { root, empty: read && !version };
+}
+function relativeTo(root, path) {
+  const result = relative(root, path);
+  return result === '' ? '.' : result.startsWith('..') || isAbsolute(result) ? path : result;
+}
+function defaultScope(root) {
+  try { return relativeTo(root, execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd: process.cwd(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()); }
+  catch { return '.'; }
+}
+function frictionItem(id) {
+  id = id.toUpperCase();
+  const item = /^FR-\d+$/.test(id) && one('SELECT * FROM items WHERE id = ?', id);
+  if (!item) fail('NOT_FOUND', `項目がありません: ${id}`, { id });
+  return item;
+}
+function hitJSON(h) {
+  return { id: h.id, item: h.item_id, cost: h.cost, steps: h.steps, basis: h.basis, after_close: !!h.after_close, task: h.task, cwd: h.cwd, pane: h.pane, model: h.model, by: h.actor, at: h.at };
+}
+function itemJSON(i, hits, since) {
+  const window = since ? hits.filter(h => h.at >= since) : hits;
+  const { seq, ...rest } = i;
+  return { ...rest, hits: window.length, score: window.reduce((sum, h) => sum + costs[h.cost], 0),
+    recurrences: i.state === 'closed' && i.resolution === 'fixed' ? window.filter(h => h.at > i.closed_at).length : 0,
+    last_hit_at: window.at(-1)?.at ?? null, latest_basis: window.at(-1)?.basis ?? null };
+}
+function frictionItems(empty, since) {
+  if (empty) return [];
+  const hits = all('SELECT * FROM hits ORDER BY id');
+  return all('SELECT * FROM items ORDER BY seq').map(i => ({ seq: i.seq, item: itemJSON(i, hits.filter(h => h.item_id === i.id), since) }))
+    .sort((a, b) => b.item.score - a.item.score || a.seq - b.seq).map(x => x.item);
+}
+function frictionTable(items) {
+  return items.length ? ['ID\tSTATE\tSCORE\tHITS\tKIND\tTITLE', ...items.map(i => `${i.id}\t${i.state}${i.resolution ? `/${i.resolution}` : ''}\t${i.score}\t${i.hits}\t${i.kind}\t${i.title}`)].join('\n') : '- なし';
+}
+function frictionEvent(item, kind, text, data, actor) {
+  return Number(run('INSERT INTO events(item_id,kind,text,data,actor,at) VALUES(?,?,?,?,?,?)', item, kind, text, JSON.stringify(data), actor, now()).lastInsertRowid);
+}
+function frictionState(item, to, actor, text, values) {
+  const at = now();
+  values = { state: to, updated_at: at, ...values };
+  run(`UPDATE items SET ${Object.keys(values).map(k => `${k}=?`).join(',')} WHERE id=?`, ...Object.values(values), item.id);
+  const event = frictionEvent(item.id, 'state', text, { from: item.state, to, ...(values.resolution ? { resolution: values.resolution, ref: values.ref } : {}) }, actor);
+  return { item: itemJSON(frictionItem(item.id), all('SELECT * FROM hits WHERE item_id=? ORDER BY id', item.id)), transition: { from: item.state, to }, event,
+    body: `${item.id}: ${item.state} -> ${to}${values.resolution ? ` (${values.resolution})` : ''}` };
+}
+function insertHit(item, v, actor) {
+  const id = Number(run('INSERT INTO hits(item_id,cost,steps,basis,after_close,task,cwd,pane,model,actor,at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+    item.id, member(v.cost, Object.keys(costs)), v.steps === undefined ? null : integer(v.steps), v.basis, item.state === 'closed' ? 1 : 0,
+    v.task?.toUpperCase() ?? null, v.cwd, process.env.HERDR_PANE_ID?.trim() || null, v.model ?? null, actor, now()).lastInsertRowid);
+  return hitJSON(one('SELECT * FROM hits WHERE id=?', id));
+}
+function frictionShow(i, hits, events) {
+  const lines = [`# ${i.id} ${i.title}`, '', `- kind: ${i.kind} / 状態: ${i.state}${i.resolution ? ` (${i.resolution}: ${i.ref})` : ''} / score ${i.score} (hit ${i.hits}${i.recurrences ? ` / 再発 ${i.recurrences}` : ''})`,
+    `- scope: ${i.scope} / target: ${i.target ?? '-'}`, `- 作成: ${i.created_by} / ${i.created_at} / 更新: ${i.updated_at}`, '', '## Fact', '', indent(i.fact), '', '## Hits', ''];
+  lines.push(...hits.map(h => `- #${h.id} ${h.at} ${h.cost}${h.steps === null ? '' : ` (steps ${h.steps})`} by ${h.by}${h.after_close ? ' / closed 後' : ''} / task ${h.task ?? '-'} / cwd ${h.cwd} / pane ${h.pane ?? '-'} / model ${h.model ?? '-'}\n  ${indent(h.basis)}`));
+  lines.push('', '## Events', '', ...events.map(e => `- #${e.id} ${e.at} ${e.kind} (${e.by})${e.text ? `: ${indent(e.text)}` : ''}${e.kind === 'state' ? ` ${e.data.from} -> ${e.data.to}${e.data.resolution ? ` ${e.data.resolution}: ${e.data.ref}` : ''}` : ''}`));
+  return lines.join('\n');
+}
+function frictionReport(r) {
+  const lines = ['# friction report', '', `- DB: ${r.db}`, `- 生成: ${r.generated_at} / 期間: ${r.since ? `${r.since} 以降` : '全期間'}`, '', '## 再発（closed 後の hit）', ''];
+  lines.push(...(r.recurrences.length ? r.recurrences.map(i => `- ${i.id} [${i.resolution}: ${i.ref}] ${i.title} — 再発 ${i.recurrences} 件（最後: ${i.last_hit_at}）`) : ['- なし']));
+  lines.push('', '## 未対応（スコア順）', '');
+  lines.push(...(r.open.length ? r.open.flatMap(i => [`- ${i.id} [${i.state}] score ${i.score} (hit ${i.hits}) ${i.kind} / scope ${i.scope} / target ${i.target ?? '-'}`,
+    `  - ${i.title}`, `  - fact: ${indent(i.fact).replaceAll('\n', '\n  ')}`, `  - 直近の basis: ${indent(i.latest_basis).replaceAll('\n', '\n  ')}`]) : ['- なし']));
+  if (r.omitted) lines.push(`- ほか ${r.omitted} 件（--limit で表示数を変える）`);
+  lines.push('', '## target ごと', '', ...(Object.keys(r.targets).length ? Object.entries(r.targets).map(([k, ids]) => `- ${k}: ${ids.join(', ')}`) : ['- なし']));
+  return lines.join('\n');
+}
+function frictionExecute(sub, p, v, actor, root, empty) {
+  const required = key => { if (v[key] === undefined) usage(`--${key} は必須です`); return v[key]; };
+  const count = (min, max = min) => { if (p.length < min || p.length > max) usage(`引数: agtask friction ${sub} ${frictionSignatures[sub]}`); };
+  const stdin = value => value === '-' ? clean(readFileSync(0, 'utf8')) : value;
+  const since = v.since === undefined ? null : Number.isNaN(Date.parse(v.since)) ? usage('--since は日時で指定してください') : new Date(v.since).toISOString();
+  if (['search', 'ls', 'report'].includes(sub)) {
+    if (sub === 'search') count(1, Infinity); else count(0);
+    let items = frictionItems(empty, since);
+    if (sub === 'search') {
+      const words = p.map(w => w.toLowerCase());
+      items = items.filter(i => (v.all || i.state !== 'closed' || i.resolution === 'fixed') && words.every(w => [i.title, i.fact, i.target ?? '', i.scope].join('\n').toLowerCase().includes(w))).slice(0, 10);
+      return { items, body: frictionTable(items) };
+    }
+    if (sub === 'ls') {
+      for (const s of v.state || []) member(s, frictionStates);
+      for (const k of v.kind || []) member(k, frictionKinds);
+      const scope = v.scope?.replace(/\/+$/, '');
+      items = items.filter(i => (!v.state || v.state.includes(i.state)) && (!v.kind || v.kind.includes(i.kind)) && (!scope || i.scope === scope || i.scope.startsWith(`${scope}/`)) && (!since || i.hits));
+      return { items, body: frictionTable(items) };
+    }
+    const limit = v.limit === undefined ? 20 : integer(v.limit);
+    if (limit < 1) usage('--limit は 1 以上です');
+    const open = items.filter(i => i.state !== 'closed' && (!since || i.hits)), targets = {};
+    for (const i of open) (targets[i.target ?? '-'] ??= []).push(i.id);
+    const result = { db: dbPath, generated_at: now(), since, recurrences: items.filter(i => i.recurrences), open: open.slice(0, limit), omitted: Math.max(0, open.length - limit), targets };
+    return { ...result, body: frictionReport(result) };
+  }
+  if (sub === 'add') {
+    count(1);
+    if (v.fact === '-' && v.basis === '-') usage('標準入力は --fact か --basis の一方にだけ使えます');
+    const kind = member(required('kind'), frictionKinds), title = limited(p[0], 120, 'title');
+    const fact = limited(stdin(required('fact')), 1000, '--fact'), basis = limited(stdin(required('basis')), 1000, '--basis');
+    required('cost');
+    const seq = Number(one("SELECT value FROM meta WHERE key='next_seq'").value), id = `FR-${seq}`, at = now();
+    run('INSERT INTO items(id,seq,kind,title,fact,scope,target,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      id, seq, kind, title, fact, v.scope?.replace(/\/+$/, '') || defaultScope(root), v.target ?? null, actor, at, at);
+    run("UPDATE meta SET value=? WHERE key='next_seq'", String(seq + 1));
+    frictionEvent(id, 'created', null, {}, actor);
+    const hit = insertHit(frictionItem(id), { ...v, basis, cwd: relativeTo(root, process.cwd()) }, actor);
+    return { item: itemJSON(frictionItem(id), [one('SELECT * FROM hits WHERE id=?', hit.id)]), hit, body: `${id}: created` };
+  }
+  if (sub === 'note') count(2); else count(1);
+  if (empty) fail('NOT_FOUND', `項目がありません: ${p[0].toUpperCase()}`, { id: p[0].toUpperCase() });
+  const item = frictionItem(p[0]);
+  if (sub === 'show') {
+    const hits = all('SELECT * FROM hits WHERE item_id=? ORDER BY id', item.id);
+    const events = all('SELECT * FROM events WHERE item_id=? ORDER BY id', item.id).map(e => ({ id: e.id, item: e.item_id, kind: e.kind, text: e.text, data: JSON.parse(e.data), by: e.actor, at: e.at }));
+    const result = { item: itemJSON(item, hits), hits: hits.map(hitJSON), events };
+    return { ...result, body: frictionShow(result.item, result.hits, events) };
+  }
+  if (sub === 'hit') {
+    if (item.resolution === 'duplicate') fail('INVALID_STATE', `${item.id} は ${item.ref} の重複です。${item.ref} に追記してください`, { state: item.state, allowed: ['open', 'accepted', 'closed'], ref: item.ref });
+    const basis = limited(stdin(required('basis')), 1000, '--basis');
+    required('cost');
+    const hit = insertHit(item, { ...v, basis, cwd: relativeTo(root, process.cwd()) }, actor);
+    return { item: itemJSON(item, all('SELECT * FROM hits WHERE item_id=? ORDER BY id', item.id)), hit, body: `${item.id}: hit #${hit.id}${hit.after_close ? ' (closed 後)' : ''}` };
+  }
+  if (sub === 'note') {
+    const text = stdin(p[1]), event = frictionEvent(item.id, 'note', text, {}, actor);
+    return { event, body: `${item.id}: note #${event}` };
+  }
+  const check = allowedStates => { if (!allowedStates.includes(item.state)) fail('INVALID_STATE', `${item.id}: 状態 ${item.state} では実行できません`, { state: item.state, allowed: allowedStates }); };
+  if (sub === 'accept') { check(['open']); return frictionState(item, 'accepted', actor, v.note ?? null, v.target ? { target: v.target } : {}); }
+  if (sub === 'reopen') { check(['closed']); return frictionState(item, 'open', actor, required('reason'), { resolution: null, ref: null, closed_at: null }); }
+  check(['open', 'accepted']);
+  const resolution = member(required('resolution'), ['fixed', 'wontfix', 'duplicate']);
+  let ref = limited(required('ref'), 1000, '--ref');
+  if (resolution === 'duplicate') {
+    ref = frictionItem(ref).id;
+    if (ref === item.id) usage('自分自身の重複にはできません');
+  }
+  return frictionState(item, 'closed', actor, null, { resolution, ref, closed_at: now() });
+}
 function ensureWAL(deadline) {
   const sleeper = new Int32Array(new SharedArrayBuffer(4));
   // WAL negotiation can return BUSY without honoring SQLite's busy handler.
@@ -528,8 +763,8 @@ function ensureWAL(deadline) {
 function main() {
   const started = performance.now();
   const boolean = ['json', 'help', 'version', 'ready', 'unassign', 'clear', 'all', 'workspace'];
-  const multiple = ['criterion', 'write', 'read', 'dep', 'state', 'artifact', 'output'];
-  const keys = unique(['as', ...Object.values(allowed).flat(), ...boolean]);
+  const multiple = ['criterion', 'write', 'read', 'dep', 'state', 'artifact', 'output', 'kind'];
+  const keys = unique(['as', ...Object.values(allowed).flat(), ...Object.values(frictionAllowed).flat(), ...boolean]);
   const options = Object.fromEntries(keys.map(k => [k, { type: boolean.includes(k) ? 'boolean' : 'string', ...(multiple.includes(k) ? { multiple: true } : {}), ...(k === 'help' ? { short: 'h' } : {}) }]));
   const parsed = parseArgs({ options, strict: true, allowPositionals: true });
   const v = parsed.values, positionals = parsed.positionals.map(clean);
@@ -543,8 +778,11 @@ function main() {
   }
   if (!command || v.help) { information('help', help(command)); return; }
   if (!Object.hasOwn(signatures, command)) usage(`未知のコマンド: ${command}`);
+  const sub = command === 'friction' ? positionals.shift() : null;
+  if (command === 'friction' && !Object.hasOwn(frictionSignatures, sub ?? '')) usage(sub ? `未知のコマンド: friction ${sub}` : `引数: agtask friction ${signatures.friction}`);
+  const name_ = sub ? `friction ${sub}` : command;
   for (const [key, value] of Object.entries(v)) {
-    if (!['as', 'json', 'help', ...allowed[command]].includes(key)) usage(`${command} に --${key} は使えません`);
+    if (!['as', 'json', 'help', ...(sub ? frictionAllowed[sub] : allowed[command])].includes(key)) usage(`${name_} に --${key} は使えません`);
     if (typeof value === 'string') v[key] = clean(value);
     else if (Array.isArray(value)) v[key] = unique(value.map(clean));
   }
@@ -553,9 +791,15 @@ function main() {
     if (v.criterion.length !== 1) usage('--criterion は一つだけ指定してください');
     v.criterion = v.criterion[0];
   }
+  // kind is repeatable for friction ls, but scalar elsewhere.
+  if (v.kind && sub !== 'ls') {
+    if (v.kind.length !== 1) usage('--kind は一つだけ指定してください');
+    v.kind = v.kind[0];
+  }
   for (const key of ['as', 'agent', 'reviewer']) if (v[key]) name(v[key]);
   const actor = v.as || (process.env.AGTASK_AGENT ? name(clean(process.env.AGTASK_AGENT)) : null);
-  if (!reads.includes(command) && command !== 'init' && !actor) usage('--as または AGTASK_AGENT が必要です');
+  const read = sub ? frictionReads.includes(sub) : reads.includes(command);
+  if (!read && command !== 'init' && !actor) usage('--as または AGTASK_AGENT が必要です');
   if (process.env.AGTASK_BUSY_TIMEOUT_MS !== undefined) timeout = integer(process.env.AGTASK_BUSY_TIMEOUT_MS);
   if (v.workspace && process.env.AGTASK_DB) usage('AGTASK_DB と --workspace は併用できません');
   ({ db: dbPath, workspace: workspaceRoot } = location(command === 'init' && v.workspace));
@@ -565,6 +809,15 @@ function main() {
       if (error.code === 'ENOENT') fail('NOT_INITIALIZED', 'init を実行してください', { db: dbPath });
       throw error;
     }
+  }
+  if (sub) {
+    try {
+      const { root, empty } = frictionDB(started, read);
+      const { body, ...data } = frictionExecute(sub, positionals, v, actor, root, empty);
+      if (db) db.exec('COMMIT');
+      console.log(json ? JSON.stringify({ ok: true, ...data }) : body);
+    } catch (error) { try { db?.exec('ROLLBACK'); } catch {} throw error; }
+    return;
   }
   if (command === 'init') mkdirSync(dirname(dbPath), { recursive: true });
   db = new DatabaseSync(dbPath, { timeout, readOnly: reads.includes(command) });

@@ -28,6 +28,11 @@
 
       flake.flakeModules.agent-tools = agentTools;
       flake.lib.agtask.ignores = [ ".agtask/" ];
+      # グローバルな AGENTS.md / CLAUDE.md に取り込む短い指示。利用側が programs.*.context に入れる。
+      flake.lib.agentContext = {
+        herdr-orchestrate = builtins.readFile ./skills/herdr-orchestrate/context.md;
+        friction-log = builtins.readFile ./skills/friction-log/context.md;
+      };
       flake.homeManagerModules.shell-tools = import ./nix/shell-tools.nix {
         stablePkgsFor = system: inputs.nixpkgs-stable.legacyPackages.${system};
       };

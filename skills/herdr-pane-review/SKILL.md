@@ -20,7 +20,7 @@ herdr の tab にいる agent の出力と記録から、何が行われたか�
 1. **対象を特定する。** `herdr tab list` で tab のラベルと ID を確認する。ラベルの「2」と番号は別物なので、ユーザーの言う tab と ID を照合してから進める。herdr-orchestrate の作業なら、子用の `orch-*` tab と、同じ worktree グループの workspace も対象に含める。
 2. **pane と agent を列挙する。** `herdr pane list --workspace <ID>` と `herdr agent list` の JSON を、対象の tab ID・workspace ID で絞り込む。名前がない agent は pane ID で扱う。
 3. **出力を読む。** 各 agent について `herdr agent read <pane> --source recent-unwrapped --lines 150` を一回ずつ実行する。TUI の装飾や折り返しは読み飛ばす。
-4. **外部の記録を読む。** agent が使った記録を確認する。`agtask ls`、`agtask graph`、`agtask history <ID>`、作業ディレクトリの `.orch/`、AGENTS.md、出力に出てくる報告ファイルなどを、いずれも単発で読む。
+4. **外部の記録を読む。** agent が使った記録を確認する。まず `agtask friction report` を読む。個々の agent が記録した探索の無駄や失敗のやり直しはそこにあるので、pane から再構成しない。pane の読み取りは、個々の agent からは見えない協調の問題（配置、通知、状態の競合）に絞る。ほかに `agtask ls`、`agtask graph`、`agtask history <ID>`、作業ディレクトリの `.orch/`、AGENTS.md、出力に出てくる報告ファイルなどを、いずれも単発で読む。
 5. **業務の流れを再構成する。** 最初の依頼文は pane に残っていないことがある。その場合は、読めた範囲と推定を分けて書く。時系列、担当、結果、差し戻しを表にまとめる。
 6. **問題を分類する。** [references/inspect.md](references/inspect.md) の観点（手順の抜け、状態の競合、作業ディレクトリの共有、配置、一時ファイル、pane 名、環境依存の失敗、文書の不足）で確認する。各指摘には根拠（pane 名、イベント ID、ファイル名）を付ける。
 7. **改善を提案する。** skill・repo・運用に分けて示す。提案は具体的な差分の案にする。適用するかはユーザーに確認する。

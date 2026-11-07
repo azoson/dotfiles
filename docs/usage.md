@@ -76,6 +76,26 @@ Opus と Grok は `cursor agent`、Astra と Luna は Codex CLI で動く。
 既存の ignore パターンは左側のリストに置く。適用すると、そのユーザーの各 repo で agtask の保存ディレクトリを除外する。
 `AGTASK_DB` で保存先を変更する場合は、そのパスに合うパターンを利用側で追加する。既に追跡済みのファイルには効かない。
 
+## グローバル指示に取り込む
+
+skill は依頼の内容から呼ばれるため、「作業の終わりに記録する」のような決まった場面の指示は、グローバルな AGENTS.md / CLAUDE.md に置く必要がある。
+この flake は、skill ごとの短い指示を `lib.agentContext.<skill>` に文字列で公開する。本文は各 skill の `context.md`。
+利用側は Home Manager の `programs.claude-code.context`（`~/.claude/CLAUDE.md`）と `programs.codex.context`（`~/.codex/AGENTS.md`）に取り込む。
+
+```nix
+let
+  context = lib.concatStrings (with dotfiles.lib.agentContext; [ herdr-orchestrate friction-log ]);
+in
+{
+  programs.claude-code = { enable = true; package = null; inherit context; };
+  programs.codex = { enable = true; package = null; inherit context; };
+}
+```
+
+- `package = null` は、CLI 本体を別の方法で入れている場合の指定。`settings` を書かなければ `settings.json` / `config.toml` は生成されない。
+- 生成されたファイルは読み取り専用になる。Claude Code の `/memory` などで CLAUDE.md に追記する使い方はできない。
+- `context` の型は複数行の文字列で、別のモジュールで書いた指示とは連結される。
+
 ## Node・開発・検証
 
 clone 先で実行する。Node は [node.nix](../nix/agent-tools/node.nix) にバージョンとハッシュを固定した公式バイナリを使う。Node/V8 のソースコンパイルは行わない。

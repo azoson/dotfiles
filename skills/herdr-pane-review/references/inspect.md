@@ -55,6 +55,7 @@ cd <repo の auth などの作業ディレクトリ>
 agtask ls
 agtask graph --format text
 agtask history <ID> --json
+agtask friction report
 ```
 
 `history` は記録順に読む。差し戻し（reject）の issue はイベント ID で参照する。

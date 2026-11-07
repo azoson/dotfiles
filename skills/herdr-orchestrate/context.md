@@ -1,0 +1,1 @@
+- herdr 内で作業を委譲・並列化するときは herdr-orchestrate skill を使う。組み込みの subagent 機能で代用しない。

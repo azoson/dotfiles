@@ -6,6 +6,8 @@
   programs.agent-skills = {
     sources.dotfiles.path = skillSource;
     skills.enable = [
+      "friction-log"
+      "friction-review"
       "herdr-orchestrate"
       "herdr-pane-review"
     ];

@@ -17,7 +17,7 @@ sources:
 - [nix/shell-tools.nix](nix/shell-tools.nix): starship・zoxide・atuin・fzf を有効にする Home Manager モジュール。
 - [nix/checks.nix](nix/checks.nix): モジュールの合成、Home Manager、Node の検証。
 - [skills/](skills/): エージェントへの指示と共有設定。
-- [tools/](tools/): skill が使う CLI の実装。agtask の仕様は [docs/agtask.md](docs/agtask.md)。
+- [tools/](tools/): skill が使う CLI の実装。agtask の仕様は [docs/agtask.md](docs/agtask.md)、friction は [docs/friction.md](docs/friction.md)。
 - [herdr-plugins/](herdr-plugins/): 人間が使う herdr plugin。orch-board は herdr-orchestrate の実行状態を読み取り専用で表示する。
 
 各端末の構成は利用側の flake が持つ。公開モジュールは、利用側の default package・shell・systems を変更しない。

@@ -66,9 +66,10 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 2. `agtask claim <ID> --as <NAME>` で取得する。`NOT_READY` / `ALREADY_ASSIGNED` なら作業せず親へ通知する。
 3. 作業中の決定は `note --kind decision`、未解決点は `note --kind issue`、次の一手は `next` で残す。
 4. 条件ごとに検証し、`evidence --criterion <n> --verdict verified --basis "<実行したコマンドと結果>"` を記録する。検証できない条件を `verified` にしない。提出前に、完了条件に含まれる format・lint・build を実行してから記録する。
-5. `submit <ID> --output <成果物> --summary "<成果・変更・検証・残件>"` で提出し、herdr で親へ通知する。`GATE_FAILED` なら `details` の不足を埋める。
-6. reject 後は reject の issue を `note --resolve <event-id>` で解消し、全条件の証拠を記録し直してから再提出する。
-7. 自力で解決できなければ `block --reason` して判断待ちを通知する。断念するなら `fail --reason`。
+5. 提出の前に friction-log skill に従い、文書にない事実の探索や予測できた失敗のやり直しを記録する。記録した FR-ID は summary の残件に書く。
+6. `submit <ID> --output <成果物> --summary "<成果・変更・検証・残件>"` で提出し、herdr で親へ通知する。`GATE_FAILED` なら `details` の不足を埋める。
+7. reject 後は reject の issue を `note --resolve <event-id>` で解消し、全条件の証拠を記録し直してから再提出する。
+8. 自力で解決できなければ `block --reason` して判断待ちを通知する。断念するなら `fail --reason`。
 
 サマリーは任意だが、提出ごとに成果・変更ファイル・検証結果・残件を記す。複数行は `--summary -` で標準入力から渡せる。空本文はエラー、省略は未登録となる。差し戻し後は前回提出が表示され、再提出で置き換わる。省略して再提出した場合、以前の本文には戻らない。サマリーは受入判定ではなく、完了はレビュアーの `accept` で確定する。
 
@@ -81,6 +82,7 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 3. 担当の decision note に分岐やフォールバック（例: 一致しない入力はそのまま出す）があれば、それぞれの経路を通るテストがあるかを確かめる。ない経路があれば、その条件を `unresolved` にする。
 4. `agtask history <ID>` で、未解決の issue と `next` を確かめる。残っていれば reject し、理由に issue のイベント ID を書く。担当は、対応するか、不要になった理由を書いて `note --resolve <event-id>` で解消してから再提出する。
 5. 全条件が `verified` なら `accept`、そうでなければ `reject --reason "<差し戻す理由>"`。条件外の問題（担当外のファイル変更など）も reject の理由にできる。
+   差し戻しの原因が予測できたもの（format の未実行、文書にない手順など）なら、friction-log skill に従って記録する。
 6. 結果を herdr で親へ通知する。reject の返り値が `fix_limit_exceeded: true` ならタスクは `blocked` になっている。その旨も通知に含める。
 
 ## 親の確認と再開
