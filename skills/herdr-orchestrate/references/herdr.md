@@ -31,6 +31,12 @@ herdr --skill
 モデルは各 CLI の一覧・設定で確認し、承認後の起動時にも選択結果を確認する。
 利用可否が事前確認できない場合は、その旨を構成案に記載する。
 
+### 再開後の親pane ID
+
+`HERDR_ENV=1` でも、pane移動や再開後に継承した `HERDR_PANE_ID` / `HERDR_WORKSPACE_ID` が古いままのことがある。`herdr pane current --current` が `pane_not_found` になったら、同じコマンドを再試行せず `herdr agent list` を一度読み、cwd・会話タイトル・既存agent名を照合して実際の親paneを特定する。focusedだけで他人のpaneを親とみなさない。一意に特定できなければ操作を止めて人間に確認する。
+
+特定できたら返却されたpane IDとworkspace IDを作業記録へ残し、その後のrename・配置・通知先には明示IDを使う。古い環境値からIDを組み立てず、既存セッションやpaneを再作成しない。これは同じsession内の古い呼出元情報の復旧であり、`HERDR_ENV` が無い環境からの操作を許可するものではない。
+
 ## 配置（session / workspace / tab / pane）
 
 公式の Concepts と Agent automation に沿って、階層ごとの役割を次のように使い分ける。[^concepts][^automation]
