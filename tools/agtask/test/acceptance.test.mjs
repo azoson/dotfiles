@@ -281,6 +281,18 @@ test('workspace DB: init --workspace, marker lookup from repos and external link
   // Non-init commands resolve the same way.
   at(ws, ['init', '--workspace', '--prefix', 'AGT']);
   const listed = f.call(['ls'], undefined, { cwd: external, env }); assert.deepEqual(listed.tasks, []);
+  // A workspace whose repos are linked worktrees of a main checkout outside it (codex workspaces),
+  // and a worktree made under the workspace: the cwd's nearest marker wins over the main checkout's ancestors.
+  const mainRepo = resolve(root, 'repos/actions'); mkdirSync(mainRepo, { recursive: true });
+  git(mainRepo, 'init'); git(mainRepo, 'commit', '--allow-empty', '-m', 'initial');
+  const ws2 = resolve(root, 'ws2'); mkdirSync(ws2);
+  const linked = resolve(ws2, 'actions'); git(mainRepo, 'worktree', 'add', '-b', 'ws2', linked);
+  const nested = resolve(ws2, '.orch/wt/actions-x'); git(mainRepo, 'worktree', 'add', '-b', 'ws2-x', nested);
+  const ws2db = at(ws2, ['init', '--workspace']).db;
+  for (const cwd of [linked, nested]) {
+    const r = at(cwd); assert.equal(r.db, ws2db, cwd); assert.equal(r.workspace, ws2, cwd);
+  }
+  assert.equal(at(mainRepo).db, resolve(mainRepo, '.agtask/tasks.db')); assert.equal(at(mainRepo).workspace, null);
 });
 
 test('graph text, mermaid escaping and topological tie order', t => {

@@ -32,7 +32,7 @@ agtask init --json
 
 ### 複数 repo の workspace
 
-- ルートで `agtask init --workspace --json` を実行する。`.agtask/tasks.db` と目印 `.agtask/workspace` ができ、配下の repo や linked worktree からも同じ DB に解決される。個別の repo では `init` しない。
+- ルートで `agtask init --workspace --json` を実行する。`.agtask/tasks.db` と目印 `.agtask/workspace` ができ、配下の repo（外にある本体の linked worktree を含む）、配下に作った worktree、外に作った linked worktree からも同じ DB に解決される。個別の repo では `init` しない。
 - `--write` / `--read` はルートからの相対パスで書く（例: `hub/src/`）。
 - 子の cwd が担当 repo の場合、`<root>/.agtask` と `<root>/.orch` は書込範囲の外になる。構成案に権限差分として示す。Codex では `writable_roots` に両方の絶対パスを入れる。他の CLI で開けなければ、上の項目どおり agtask で管理しない。`<root>/.orch` に書けない子には、Git の追跡外になる担当 repo の作業領域（例: `<repo>/.orch/`）を指定し、構成案に書く。
 
@@ -64,7 +64,7 @@ herdr の投入プロンプトに、タスク ID、子の名前、次の手順�
 
 1. `agtask show <ID> --json` で目的・条件・担当ファイルを読む。失敗したら作業せず、判断待ちとして親へ通知する。
 2. `agtask claim <ID> --as <NAME>` で取得する。`NOT_READY` / `ALREADY_ASSIGNED` なら作業せず親へ通知する。
-3. 作業中の決定は `note --kind decision`、未解決点は `note --kind issue`、次の一手は `next` で残す。
+3. 作業中の決定は `note --kind decision`、未解決点は `note --kind issue`、次の一手は `next` で残す。挙動の変更や、分岐・フォールバックの追加を decision に書いたら、その経路を通るテストも足す。レビューで確かめられる。
 4. 条件ごとに検証し、`evidence --criterion <n> --verdict verified --basis "<実行したコマンドと結果>"` を記録する。検証できない条件を `verified` にしない。提出前に、完了条件に含まれる format・lint・build を実行してから記録する。
 5. 提出の前に friction-log skill に従い、文書にない事実の探索や予測できた失敗のやり直しを記録する。記録した FR-ID は summary の残件に書く。
 6. `submit <ID> --output <成果物> --summary "<成果・変更・検証・残件>"` で提出し、herdr で親へ通知する。`GATE_FAILED` なら `details` の不足を埋める。

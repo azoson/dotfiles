@@ -28,7 +28,7 @@ herdr-orchestrate での使い方は [agtask 操作](../skills/herdr-orchestrate
 次の順で DB ファイルを決める。
 
 1. 環境変数 `AGTASK_DB` が空でなければ、その値。相対パスは cwd 基準で絶対パスにする。
-2. workspace の目印。アンカー `A` を決める。3. の条件を満たせば main worktree のルート `R`、そうでなく `git rev-parse --show-toplevel` が成功すればその結果 `T`、それ以外は cwd。`A` 自身とその祖先をファイルシステムのルートまで上へ辿り、`<D>/.agtask/workspace` が存在する最も近い `D` の `<D>/.agtask/tasks.db` を使う。目印が無い祖先に `.agtask/tasks.db` だけがあっても使わない。祖先の探索は `existsSync` で行い、`git` は追加で呼ばない。
+2. workspace の目印。まず cwd 自身とその祖先をファイルシステムのルートまで上へ辿り、`<D>/.agtask/workspace` が存在する最も近い `D` の `<D>/.agtask/tasks.db` を使う。見つからなければアンカー `A` を決め、`A` 自身とその祖先を同じように辿る。`A` は、3. の条件を満たせば main worktree のルート `R`、そうでなく `git rev-parse --show-toplevel` が成功すればその結果 `T`、それ以外は cwd。目印が無い祖先に `.agtask/tasks.db` だけがあっても使わない。祖先の探索は `existsSync` で行い、`git` は追加で呼ばない。
 3. cwd で `git rev-parse --path-format=absolute --git-common-dir` が成功し、結果を `C`、その親ディレクトリを `R` として次を全て満たせば `<R>/.agtask/tasks.db`。`R` は main worktree のルートで、同じ repo の全 worktree が同じ DB に解決する。
    - `C` の basename が `.git`。
    - `git --git-dir=<C> rev-parse --is-bare-repository` の出力が `false`。
@@ -39,7 +39,7 @@ herdr-orchestrate での使い方は [agtask 操作](../skills/herdr-orchestrate
 
 ### workspace
 
-複数の repo を 1 つのディレクトリにまとめた workspace（ルート自体は Git の外）では、ルートで `agtask init --workspace` を実行する。ルートに DB と目印 `.agtask/workspace` ができ、配下の repo のサブディレクトリ、ルート、workspace の外に作った linked worktree から同じ DB に解決する。ネストした workspace では最も近い目印が勝つ。
+複数の repo を 1 つのディレクトリにまとめた workspace（ルート自体は Git の外）では、ルートで `agtask init --workspace` を実行する。ルートに DB と目印 `.agtask/workspace` ができ、配下の repo のサブディレクトリ、ルート、workspace の外に作った linked worktree から同じ DB に解決する。配下の repo が workspace の外にある本体の linked worktree の場合（codex workspace など）や、配下に作った worktree も、cwd の祖先の目印で同じ DB に解決する。ネストした workspace では cwd に最も近い目印が勝つ。
 
 - 配下の repo に `.agtask/tasks.db` が既にあっても、workspace の目印があればそちらは使われない。以前の DB のタスクは見えなくなる。
 - 子の cwd が repo の中なら、DB ディレクトリ（workspace のルート）は書込範囲外になり得る。書込許可が要る。
@@ -622,7 +622,7 @@ flowchart TD
 
 `node:test` で書き、CLI を `process.execPath` の子プロセスとして実行する。各テストは一時ディレクトリと `AGTASK_DB` を使い、環境変数 `GIT_*` と `AGTASK_AGENT` を除いて起動する。判定は `--json` の出力と終了コードで行い、`handoff` と `graph` は本文も比べる。
 
-- 保存先: `AGTASK_DB` の優先（相対パスは cwd 基準）。main worktree のルート・その下位ディレクトリ・`git worktree add` した worktree から、いずれも `<main worktree>/.agtask/tasks.db` に解決する。bare repo の worktree と `--separate-git-dir` の repo は `<show-toplevel>/.agtask/tasks.db`、bare repo 内と Git 外は `<cwd>/.agtask/tasks.db`。workspace: `init --workspace` と目印、repo のサブディレクトリ・ルート・外の linked worktree から同じ DB、目印の無い祖先の DB は不使用、ネストは最も近い目印、`AGTASK_DB` との併用は `USAGE`。未初期化で `NOT_INITIALIZED`（終了コード 3）。
+- 保存先: `AGTASK_DB` の優先（相対パスは cwd 基準）。main worktree のルート・その下位ディレクトリ・`git worktree add` した worktree から、いずれも `<main worktree>/.agtask/tasks.db` に解決する。bare repo の worktree と `--separate-git-dir` の repo は `<show-toplevel>/.agtask/tasks.db`、bare repo 内と Git 外は `<cwd>/.agtask/tasks.db`。workspace: `init --workspace` と目印、repo のサブディレクトリ・ルート・外の linked worktree から同じ DB、外の本体の linked worktree を workspace 配下に置いた repo とその配下の worktree から同じ DB（本体からは本体の DB）、目印の無い祖先の DB は不使用、ネストは最も近い目印、`AGTASK_DB` との併用は `USAGE`。未初期化で `NOT_INITIALIZED`（終了コード 3）。
 - .gitignore: 既定の保存先への `init` で `.agtask/.gitignore` が内容 `*` で作られ、`git status --porcelain` が空のまま。既存の `.gitignore` は変わらず `gitignore: "exists"`。`AGTASK_DB` では作らず `skipped`。`init` の前後で `.git/` 配下のファイル一覧が同じ（`git status` を実行する前に比べる）。
 - init: WAL になる、二重実行で `created: false`、`--prefix` の不一致で `PREFIX_MISMATCH`、`user_version` が大きい DB で `SCHEMA_TOO_NEW`。
 - 並行 init: 新しい DB に 8 プロセスで同時に `init` し、全て終了コード 0、`created: true` が 1 件、DB が WAL。テストを再実行して通った結果だけで判断しない。

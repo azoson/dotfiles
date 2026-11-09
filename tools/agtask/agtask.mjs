@@ -64,10 +64,15 @@ function location(init) {
   const common = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
   const main = common && basename(common) === '.git' && git([`--git-dir=${common}`, 'rev-parse', '--is-bare-repository']) === 'false' ? dirname(common) : null;
   const anchor = resolve(main || git(['rev-parse', '--show-toplevel']) || process.cwd());
-  for (let dir = anchor; ; dir = dirname(dir)) {
-    if (existsSync(resolve(dir, '.agtask/workspace'))) return { db: resolve(dir, '.agtask/tasks.db'), workspace: dir };
-    if (dirname(dir) === dir) break;
-  }
+  const markerFrom = start => {
+    for (let dir = start; ; dir = dirname(dir)) {
+      if (existsSync(resolve(dir, '.agtask/workspace'))) return dir;
+      if (dirname(dir) === dir) return null;
+    }
+  };
+  // cwd の祖先を先に見る。workspace 配下の repo が外にある本体の linked worktree でも、その workspace の DB を使う。
+  const workspace = markerFrom(resolve(process.cwd())) ?? markerFrom(anchor);
+  if (workspace) return { db: resolve(workspace, '.agtask/tasks.db'), workspace };
   return { db: resolve(anchor, '.agtask/tasks.db'), workspace: null };
 }
 function event(task, kind, text, data, actor) {
