@@ -62,8 +62,9 @@ herdr --skill
 
 - 1 つの tab で同じ向きの split を繰り返さない。列や行が狭くなり、agent の出力を読めなくなる。[^herdr]
 - worktree の子は cwd が別 checkout になる。agtask を使う場合は [agtask.md](agtask.md) の書込範囲外の扱いになるので、権限差分も構成案に書く。
+- Claude（`kind = "claude"`）の子を新しい worktree で起動すると、フォルダの trust の確認が出て `blocked` になる。親は答えないので、構成案の worktree の行に「起動後に人間が各 pane で trust を承認する」と書く。
 - workspace（複数 repo をまとめたルート）での既定は、調査・レビューの子の cwd をルート、実装の子の cwd を担当 repo とする。構成案の cwd と配置には repo 名を書く。
-- 複数 repo の workspace では、worktree を repo ごとに `herdr worktree create --workspace <ID> --cwd <root>/<repo> ...` で作る。
+- 複数 repo の workspace では、worktree を repo ごとに作り、`--path <root>/.orch/wt/<name>` で checkout を workspace の下に置く。`--workspace` と `--cwd` は併用できない（0.9.5）。配下の repo が workspace の外にある本体の linked worktree（codex workspace など）なら、`--cwd` に本体のチェックアウト（`git -C <root>/<repo> rev-parse --path-format=absolute --git-common-dir` の親）を渡す。linked worktree を渡すと `linked_worktree_source` で失敗する。
 - commit・PR・push 前の `git fetch` の確認は repo ごとに行う。
 - 1 つの依頼で作る tab は orch-tab と logs-tab をそれぞれ最大 1 つにする。子ごとに tab や workspace を作らない。
 
@@ -92,6 +93,10 @@ herdr pane split "$ROOT_PANE_ID" --direction right --cwd "$PWD" --no-focus
 # worktree: checkout と workspace を同時に作る。root pane の cwd は新しい checkout。
 herdr worktree create --workspace "$HERDR_WORKSPACE_ID" --branch "$BRANCH" --base "$BASE" --label "$NAME" --no-focus
 # → .result.workspace.workspace_id, .result.root_pane.pane_id, .result.worktree
+
+# 複数 repo の workspace: 本体のチェックアウトを起点にし、checkout を workspace の下に置く。
+MAIN=$(dirname "$(git -C "$ROOT/$REPO" rev-parse --path-format=absolute --git-common-dir)")
+herdr worktree create --cwd "$MAIN" --branch "$BRANCH" --base "$BASE" --path "$ROOT/.orch/wt/$NAME" --label "$NAME" --no-focus
 ```
 
 - 作った tab・worktree の ID・ラベル・ブランチを記録する。片付けの対象はこの記録で決める。
@@ -127,6 +132,7 @@ herdr agent get "$PANE_ID"
 `args` がある場合は同じ方法でモデル指定の後ろに追加する。上記の quote は POSIX shell 用。別の shell ではその shell に合う方法を使う。
 起動確認は単発で行い、検出した種別が profile の `kind` と一致し、`idle` / `done` になったことを確認する。
 未検出・未準備・`blocked` なら仕事を投入せず状況を報告し、再起動や polling をしない。
+trust の確認で `blocked` になった場合は、pane ID を示して人間に承認を依頼し、承認の連絡を受けてから単発で確認する。
 準備できたら `herdr agent rename "$PANE_ID" "$NAME"` で承認済みの名前を付け、以降は通常の agent 操作を使う。
 名前は計画に使った名前（agtask の担当名）と一致させる。既に名前がない pane を使う場合は、rename してから投入する。
 
